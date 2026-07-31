@@ -1,0 +1,30 @@
+# Dependências
+node_modules/
+.pnp/
+.pnp.js
+
+# Build
+dist/
+build/
+.vite/
+
+# Segredos — NUNCA versionar
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Arquivos temporários de geração de tipos
+types.tmp.ts
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+
+# Sistema / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

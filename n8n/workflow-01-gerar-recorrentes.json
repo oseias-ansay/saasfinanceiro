@@ -1,0 +1,132 @@
+{
+  "name": "Financeiro 01 — Gerar Lançamentos Recorrentes",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 3 * * *"
+            }
+          ]
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "name": "Todo dia às 03:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-360, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api-financeiro.businesstriage.com.br/api/v1/webhooks/n8n/generate-recurring",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={}",
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "neverError": false
+            }
+          }
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "name": "API: gerar recorrentes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-140, 0],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SUBSTITUA_PELO_ID_DA_CREDENCIAL",
+          "name": "Finance API - x-n8n-secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Consolida o retorno da API num resumo legível.\n// A RPC é idempotente (índice único no banco), então rodar duas vezes\n// no mesmo dia gera 0 novas transações — isso é esperado, não é erro.\n\nconst r = $input.first().json;\nconst criadas = Number(r.transactions_created ?? 0);\nconst templates = Number(r.templates_processed ?? 0);\n\nconst detalhe = (r.detail ?? [])\n  .filter((d) => Number(d.generated ?? 0) > 0)\n  .map((d) => `${d.template_id}: ${d.generated}`);\n\nreturn [\n  {\n    json: {\n      executado_em: new Date().toISOString(),\n      templates_processados: templates,\n      transacoes_criadas: criadas,\n      houve_geracao: criadas > 0,\n      detalhe,\n      resumo:\n        criadas > 0\n          ? `${criadas} lançamento(s) recorrente(s) criado(s) a partir de ${templates} template(s).`\n          : 'Nenhum lançamento novo: tudo já estava materializado dentro do horizonte.',\n    },\n  },\n];"
+      },
+      "id": "a1000000-0000-4000-8000-000000000003",
+      "name": "Resumo da execução",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [80, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.houve_geracao }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000004",
+      "name": "Gerou algo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [300, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ponto de extensão: aqui você pode notificar o time (Telegram/Slack)\n// quando houver geração. Mantido como no-op para não gerar ruído diário.\nreturn $input.all();"
+      },
+      "id": "a1000000-0000-4000-8000-000000000005",
+      "name": "Log (extensível)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [540, -100]
+    }
+  ],
+  "connections": {
+    "Todo dia às 03:00": {
+      "main": [[{ "node": "API: gerar recorrentes", "type": "main", "index": 0 }]]
+    },
+    "API: gerar recorrentes": {
+      "main": [[{ "node": "Resumo da execução", "type": "main", "index": 0 }]]
+    },
+    "Resumo da execução": {
+      "main": [[{ "node": "Gerou algo?", "type": "main", "index": 0 }]]
+    },
+    "Gerou algo?": {
+      "main": [[{ "node": "Log (extensível)", "type": "main", "index": 0 }], []]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "finance-mvp"
+  },
+  "tags": [{ "name": "financeiro" }]
+}

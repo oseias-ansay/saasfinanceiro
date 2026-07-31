@@ -1,0 +1,50 @@
+# =====================================================================
+# API Financeira — deploy no VPS via Traefik
+# =====================================================================
+# A API entra em DUAS redes:
+#   • traefik-proxy    -> recebe tráfego externo (HTTPS)
+#   • supabase_default -> fala com o Kong internamente, sem sair p/ internet
+#
+# Não publica porta no host de propósito: quem expõe é o Traefik.
+# =====================================================================
+services:
+  finance-api:
+    build: .
+    image: finance-api:latest
+    container_name: finance-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: "3333"
+      # Hostname interno do Kong. O tráfego nunca sai do servidor.
+      SUPABASE_URL: http://supabase-kong:8000
+    networks:
+      - traefik-proxy
+      - supabase_default
+    labels:
+      traefik.enable: "true"
+      # Obrigatório quando o container está em mais de uma rede: sem isso o
+      # Traefik pode escolher o IP da rede errada e devolver 504.
+      traefik.docker.network: "traefik-proxy"
+
+      # HTTP -> redireciona para HTTPS
+      traefik.http.routers.finance-api-http.rule: "Host(`api-financeiro.businesstriage.com.br`)"
+      traefik.http.routers.finance-api-http.entrypoints: "web"
+      traefik.http.routers.finance-api-http.middlewares: "finance-api-redirect"
+
+      # HTTPS com certificado automático (mesmo resolver dos seus outros sites)
+      traefik.http.routers.finance-api.rule: "Host(`api-financeiro.businesstriage.com.br`)"
+      traefik.http.routers.finance-api.entrypoints: "websecure"
+      traefik.http.routers.finance-api.tls.certresolver: "letsencrypt"
+
+      traefik.http.services.finance-api.loadbalancer.server.port: "3333"
+
+      traefik.http.middlewares.finance-api-redirect.redirectscheme.scheme: "https"
+      traefik.http.middlewares.finance-api-redirect.redirectscheme.permanent: "true"
+
+networks:
+  traefik-proxy:
+    external: true
+  supabase_default:
+    external: true

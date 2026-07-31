@@ -1,0 +1,146 @@
+{
+  "name": "Financeiro 02 — Alerta Diário ao Gestor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "b2000000-0000-4000-8000-000000000001",
+      "name": "Dias úteis às 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-520, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api-financeiro.businesstriage.com.br/api/v1/webhooks/n8n/digest",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "b2000000-0000-4000-8000-000000000002",
+      "name": "API: digest de todas as empresas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-300, 0],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SUBSTITUA_PELO_ID_DA_CREDENCIAL",
+          "name": "Finance API - x-n8n-secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "tenants",
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000003",
+      "name": "Uma empresa por item",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [-80, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Decide QUEM recebe e-mail e monta o corpo da mensagem.\n//\n// Regra de silêncio: empresa sem nada a reportar não recebe e-mail nenhum.\n// Alerta que chega todo dia sem novidade vira ruído e o gestor para de ler —\n// aí, quando o caixa realmente furar, ele não abre a mensagem.\n\nconst brl = (v) =>\n  Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });\n\nconst dataBR = (d) => (d ? new Date(d + 'T12:00:00').toLocaleDateString('pt-BR') : '—');\n\nconst saida = [];\n\nfor (const item of $input.all()) {\n  const t = item.json;\n\n  const venceHoje = Number(t.vence_hoje_pagar || 0) + Number(t.vence_hoje_receber || 0);\n  const atrasado = Number(t.atrasado_pagar || 0) + Number(t.atrasado_receber || 0);\n  const temCaixaNegativo = Boolean(t.primeiro_dia_negativo);\n  const temRecipiente = Array.isArray(t.recipients) && t.recipients.length > 0;\n\n  const temAlgoARelatar = venceHoje > 0 || atrasado > 0 || temCaixaNegativo;\n  if (!temAlgoARelatar || !temRecipiente) continue;\n\n  // Severidade: caixa negativo é o único que merece 'critical'.\n  const severity = temCaixaNegativo ? 'critical' : t.qtd_atrasados > 0 ? 'warning' : 'info';\n\n  const linhas = (t.titulos || [])\n    .map((x) => {\n      const cor = x.situacao === 'atrasado' ? '#b91c1c' : '#1f2937';\n      const sinal = x.type === 'receita' ? '+' : '−';\n      return `<tr>\n        <td style=\"padding:6px 10px;border-bottom:1px solid #eee;color:${cor}\">${dataBR(x.due_date)}</td>\n        <td style=\"padding:6px 10px;border-bottom:1px solid #eee;color:${cor}\">${x.description ?? ''}</td>\n        <td style=\"padding:6px 10px;border-bottom:1px solid #eee;color:${cor}\">${x.entity_name ?? '—'}</td>\n        <td style=\"padding:6px 10px;border-bottom:1px solid #eee;text-align:right;color:${cor}\">${sinal} ${brl(x.amount)}</td>\n      </tr>`;\n    })\n    .join('');\n\n  const blocoCaixa = temCaixaNegativo\n    ? `<div style=\"background:#fef2f2;border-left:4px solid #dc2626;padding:12px 16px;margin:16px 0\">\n         <strong style=\"color:#991b1b\">Atenção: seu caixa fica negativo em ${dataBR(t.primeiro_dia_negativo)}.</strong>\n         <div style=\"color:#7f1d1d;font-size:14px;margin-top:4px\">\n           Considere antecipar recebimentos ou renegociar pagamentos antes dessa data.\n         </div>\n       </div>`\n    : '';\n\n  const html = `\n<div style=\"font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:640px;margin:0 auto;color:#1f2937\">\n  <h2 style=\"margin:0 0 4px\">Resumo financeiro — ${t.tenant_name}</h2>\n  <div style=\"color:#6b7280;font-size:14px;margin-bottom:20px\">${new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}</div>\n\n  ${blocoCaixa}\n\n  <table style=\"width:100%;border-collapse:collapse;margin-bottom:20px\">\n    <tr>\n      <td style=\"padding:12px;background:#f9fafb;border-radius:6px\">\n        <div style=\"color:#6b7280;font-size:13px\">Saldo em caixa hoje</div>\n        <div style=\"font-size:22px;font-weight:600;color:${Number(t.saldo_atual) < 0 ? '#dc2626' : '#059669'}\">${brl(t.saldo_atual)}</div>\n      </td>\n    </tr>\n  </table>\n\n  <table style=\"width:100%;border-collapse:collapse;font-size:14px;margin-bottom:20px\">\n    <tr><td style=\"padding:6px 0\">A pagar hoje</td><td style=\"text-align:right;font-weight:600\">${brl(t.vence_hoje_pagar)}</td></tr>\n    <tr><td style=\"padding:6px 0\">A receber hoje</td><td style=\"text-align:right;font-weight:600\">${brl(t.vence_hoje_receber)}</td></tr>\n    <tr><td style=\"padding:6px 0;color:#b91c1c\">Contas atrasadas (${t.qtd_atrasados})</td><td style=\"text-align:right;font-weight:600;color:#b91c1c\">${brl(t.atrasado_pagar)}</td></tr>\n    <tr><td style=\"padding:6px 0;color:#b91c1c\">Recebimentos atrasados</td><td style=\"text-align:right;font-weight:600;color:#b91c1c\">${brl(t.atrasado_receber)}</td></tr>\n  </table>\n\n  ${linhas ? `<h3 style=\"font-size:15px;margin:0 0 8px\">Títulos em aberto até hoje</h3>\n  <table style=\"width:100%;border-collapse:collapse;font-size:13px\">\n    <thead><tr style=\"background:#f9fafb\">\n      <th style=\"padding:8px 10px;text-align:left\">Vence</th>\n      <th style=\"padding:8px 10px;text-align:left\">Descrição</th>\n      <th style=\"padding:8px 10px;text-align:left\">Cliente/Fornecedor</th>\n      <th style=\"padding:8px 10px;text-align:right\">Valor</th>\n    </tr></thead>\n    <tbody>${linhas}</tbody>\n  </table>` : ''}\n\n  <div style=\"color:#9ca3af;font-size:12px;margin-top:24px;border-top:1px solid #eee;padding-top:12px\">\n    Enviado automaticamente pelo seu sistema financeiro.\n  </div>\n</div>`;\n\n  const assunto = temCaixaNegativo\n    ? `⚠️ ${t.tenant_name}: caixa negativo previsto para ${dataBR(t.primeiro_dia_negativo)}`\n    : `Resumo financeiro — ${t.tenant_name}`;\n\n  saida.push({\n    json: {\n      tenant_id: t.tenant_id,\n      tenant_name: t.tenant_name,\n      to: t.recipients.join(','),\n      subject: assunto,\n      html,\n      severity,\n      notification: {\n        tenant_id: t.tenant_id,\n        kind: 'digest_diario',\n        title: temCaixaNegativo\n          ? `Caixa negativo previsto para ${dataBR(t.primeiro_dia_negativo)}`\n          : `${t.qtd_atrasados} conta(s) atrasada(s) e ${brl(t.vence_hoje_pagar)} a pagar hoje`,\n        body: `Saldo atual ${brl(t.saldo_atual)}. A pagar hoje ${brl(t.vence_hoje_pagar)}, a receber ${brl(t.vence_hoje_receber)}.`,\n        severity,\n        link: '/contas-a-pagar?filtro=atrasado',\n        meta: {\n          saldo_atual: t.saldo_atual,\n          qtd_atrasados: t.qtd_atrasados,\n          primeiro_dia_negativo: t.primeiro_dia_negativo,\n        },\n      },\n    },\n  });\n}\n\nreturn saida;"
+      },
+      "id": "b2000000-0000-4000-8000-000000000004",
+      "name": "Filtrar e montar e-mail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [140, 0]
+    },
+    {
+      "parameters": {
+        "fromEmail": "financeiro@oseiasansay.com.br",
+        "toEmail": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000005",
+      "name": "Enviar e-mail ao gestor",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [380, 0],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "smtp": {
+          "id": "SUBSTITUA_PELO_ID_DA_CREDENCIAL",
+          "name": "SMTP Financeiro"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api-financeiro.businesstriage.com.br/api/v1/webhooks/n8n/notifications",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Filtrar e montar e-mail').item.json.notification) }}",
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000006",
+      "name": "Gravar notificação in-app",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [620, 0],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SUBSTITUA_PELO_ID_DA_CREDENCIAL",
+          "name": "Finance API - x-n8n-secret"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Dias úteis às 08:00": {
+      "main": [[{ "node": "API: digest de todas as empresas", "type": "main", "index": 0 }]]
+    },
+    "API: digest de todas as empresas": {
+      "main": [[{ "node": "Uma empresa por item", "type": "main", "index": 0 }]]
+    },
+    "Uma empresa por item": {
+      "main": [[{ "node": "Filtrar e montar e-mail", "type": "main", "index": 0 }]]
+    },
+    "Filtrar e montar e-mail": {
+      "main": [[{ "node": "Enviar e-mail ao gestor", "type": "main", "index": 0 }]]
+    },
+    "Enviar e-mail ao gestor": {
+      "main": [[{ "node": "Gravar notificação in-app", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "finance-mvp"
+  },
+  "tags": [{ "name": "financeiro" }]
+}
