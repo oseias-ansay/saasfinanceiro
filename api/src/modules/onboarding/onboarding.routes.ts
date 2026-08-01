@@ -17,6 +17,8 @@ const createTenantSchema = z.object({
     .refine((v) => v === '' || /^[0-9]{11,14}$/.test(v), 'CNPJ/CPF inválido')
     .optional(),
   fiscal_regime: z.string().trim().max(60).optional(),
+  /** 'pessoa_fisica' recebe categorias de vida pessoal, não plano de contas. */
+  kind: z.enum(['empresa', 'pessoa_fisica']).default('empresa'),
   seed_categories: z.boolean().default(true),
 });
 
@@ -36,6 +38,7 @@ onboardingRouter.post('/tenants', requireAuth, validate(createTenantSchema), asy
         legal_name: body.legal_name ?? null,
         tax_id: body.tax_id || null,
         fiscal_regime: body.fiscal_regime ?? null,
+        kind: body.kind,
         created_by: req.user!.id,
       })
       .select()
@@ -45,16 +48,19 @@ onboardingRouter.post('/tenants', requireAuth, validate(createTenantSchema), asy
 
     let categories = 0;
     if (body.seed_categories) {
-      const { data, error: seedErr } = await req.supabase.rpc('fn_seed_default_categories', {
-        p_tenant_id: tenant.id,
-      });
+      // Vida pessoal e empresa têm estruturas de categoria diferentes.
+      const rpc =
+        body.kind === 'pessoa_fisica'
+          ? 'fn_seed_categorias_pessoais'
+          : 'fn_seed_default_categories';
+
+      const { data, error: seedErr } = await req.supabase.rpc(rpc, { p_tenant_id: tenant.id });
       if (seedErr) throw fromPostgrest(seedErr);
       categories = data ?? 0;
 
-      // Conta padrão para o fluxo de caixa ter saldo inicial.
       await req.supabase.from('bank_accounts').insert({
         tenant_id: tenant.id,
-        name: 'Caixa',
+        name: body.kind === 'pessoa_fisica' ? 'Conta corrente' : 'Caixa',
         opening_balance: 0,
         is_default: true,
       });
