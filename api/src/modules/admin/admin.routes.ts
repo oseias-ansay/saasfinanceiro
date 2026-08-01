@@ -170,19 +170,45 @@ adminRouter.post('/acesso', validate(acessoSchema), async (req, res, next) => {
   try {
     const { tenant_id, role } = req.body as z.infer<typeof acessoSchema>;
 
-    const { error } = await req.supabase.from('memberships').upsert(
-      {
-        tenant_id,
-        user_id: req.user!.id,
-        role,
-        is_active: true,
-        invited_by: req.user!.id,
-      },
-      { onConflict: 'tenant_id,user_id' },
-    );
+    // Se já existe vínculo, NÃO mexe nele.
+    //
+    // A versão anterior fazia upsert e sobrescrevia o papel: um staff que já
+    // fosse 'owner' da empresa era rebaixado a 'viewer' ao clicar em "Acessar",
+    // perdendo o direito de gravar. Conceder acesso jamais pode reduzir acesso.
+    const { data: existente, error: errBusca } = await req.supabase
+      .from('memberships')
+      .select('role, is_active')
+      .eq('tenant_id', tenant_id)
+      .eq('user_id', req.user!.id)
+      .maybeSingle();
+
+    if (errBusca) throw fromPostgrest(errBusca);
+
+    if (existente) {
+      // Só reativa se estiver desativado; o papel permanece o que era.
+      if (!existente.is_active) {
+        const { error } = await req.supabase
+          .from('memberships')
+          .update({ is_active: true })
+          .eq('tenant_id', tenant_id)
+          .eq('user_id', req.user!.id);
+        if (error) throw fromPostgrest(error);
+      }
+      return res.json({
+        data: { tenant_id, role: existente.role, ja_tinha_acesso: true },
+      });
+    }
+
+    const { error } = await req.supabase.from('memberships').insert({
+      tenant_id,
+      user_id: req.user!.id,
+      role,
+      is_active: true,
+      invited_by: req.user!.id,
+    });
     if (error) throw fromPostgrest(error);
 
-    res.status(201).json({ data: { tenant_id, role } });
+    res.status(201).json({ data: { tenant_id, role, ja_tinha_acesso: false } });
   } catch (e) {
     next(e);
   }
