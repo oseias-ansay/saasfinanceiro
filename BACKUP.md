@@ -105,22 +105,41 @@ docker restart supabase-rest      # limpa o cache de schema do PostgREST
 
 ## O que o backup cobre — e o que não cobre
 
-**Cobre:** todo o schema e os dados do Postgres — empresas, usuários,
-lançamentos, categorias, RLS, funções e views.
+**Cobre três bancos**, cada um em sua pasta sob `/var/backups`:
 
-**Não cobre:** os arquivos do Storage (comprovantes), que ficam em volume
-próprio do Supabase. Quando o upload de comprovante entrar em uso, será
-preciso incluir esse volume no backup.
+| Container | Conteúdo |
+|---|---|
+| `supabase-db` | Empresas, usuários, lançamentos, categorias, RLS, funções e views |
+| `n8n-postgres-1` | Workflows e credenciais da instância pessoal |
+| `n8n-businestriage-postgres-1` | Workflows e credenciais da Business Triage |
 
-**Não cobre:** o `.env` da API e do Supabase, com as chaves. Guarde uma cópia
-num gerenciador de senhas — sem `JWT_SECRET` e `ANON_KEY`, restaurar o banco
-não devolve o sistema funcionando.
+O usuário e a base de cada um são detectados em execução, lendo as variáveis
+do próprio container — não dependem de estarem escritos no script.
+
+**Não cobre — e isso importa:**
+
+**As chaves de criptografia.** O n8n cifra as credenciais com a
+`N8N_ENCRYPTION_KEY`, que fica em `/home/node/.n8n/config` dentro do container
+e é gerada automaticamente na primeira execução. Restaurar o banco devolve os
+workflows, mas todas as credenciais vêm ilegíveis. Guarde as duas chaves num
+gerenciador de senhas, identificando de qual instância é cada uma:
+
+```bash
+docker exec n8n-n8n-1 cat /home/node/.n8n/config
+docker exec n8n-businestriage-n8n-1 cat /home/node/.n8n/config
+```
+
+**Os `.env`** do Supabase e da API. Sem `JWT_SECRET`, restaurar o banco não
+devolve o sistema: os tokens não validam e ninguém entra.
+
+**Os arquivos do Storage** (comprovantes), em volume próprio do Supabase.
+Relevante quando o upload de comprovante entrar em uso.
 
 ## Verificação periódica
 
 ```bash
-ls -lh /var/backups/supabase/diario/
-tail -20 /var/log/backup-supabase.log
+ls -lh /var/backups/*/diario/
+tail -30 /var/log/backup-supabase.log
 ```
 
 Se o log parar de crescer, o cron parou. Backup que falha em silêncio dá a
