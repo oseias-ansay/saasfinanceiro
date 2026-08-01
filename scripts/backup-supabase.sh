@@ -109,6 +109,63 @@ for CONTAINER in "${CONTAINERS[@]}"; do
   find "$PASTA/semanal" -type f -name "$CONTAINER-*" -mtime +$((MANTER_SEMANAIS * 7)) -delete
 done
 
+# ---------------------------------------------------------------------
+# ARQUIVOS DO STORAGE (comprovantes)
+# ---------------------------------------------------------------------
+# Os anexos ficam em volume próprio do Supabase, fora do Postgres. O dump do
+# banco guarda apenas a REFERÊNCIA ao arquivo — sem esta parte, restaurar
+# devolveria uma lista de comprovantes cujos arquivos não existem mais.
+#
+# O caminho é descoberto a partir do próprio container, não fixado aqui:
+# muda conforme a instalação use bind mount ou volume nomeado.
+echo
+log "--- storage (comprovantes)"
+
+STORAGE_DIR=$(docker inspect supabase-storage \
+  --format '{{range .Mounts}}{{if eq .Destination "/var/lib/storage"}}{{.Source}}{{end}}{{end}}' \
+  2>/dev/null)
+
+if [ -z "$STORAGE_DIR" ] || [ ! -d "$STORAGE_DIR" ]; then
+  log "volume do storage não localizado, pulando"
+else
+  PASTA="$DEST/storage"
+  mkdir -p "$PASTA/diario" "$PASTA/semanal"
+
+  DATA=$(date +%F_%H%M)
+  BASE="$PASTA/diario/storage-$DATA.tar.gz"
+  TMP="$BASE.parcial"
+
+  ARQUIVOS=$(find "$STORAGE_DIR" -type f 2>/dev/null | wc -l)
+  log "compactando $ARQUIVOS arquivo(s) de $STORAGE_DIR"
+
+  if tar -czf "$TMP" -C "$(dirname "$STORAGE_DIR")" "$(basename "$STORAGE_DIR")" 2>/dev/null; then
+    if gzip -t "$TMP" 2>/dev/null; then
+      if [ -f "$PASS_FILE" ]; then
+        if gpg --batch --yes --symmetric --cipher-algo AES256 \
+               --passphrase-file "$PASS_FILE" -o "$TMP.gpg" "$TMP" 2>/dev/null; then
+          rm -f "$TMP"; mv "$TMP.gpg" "$BASE.gpg"; FINAL="$BASE.gpg"
+        else
+          log "ERRO ao cifrar o storage"; rm -f "$TMP"; FALHAS=$((FALHAS+1)); FINAL=""
+        fi
+      else
+        mv "$TMP" "$BASE"; FINAL="$BASE"
+      fi
+
+      if [ -n "$FINAL" ]; then
+        log "gerado: $(basename "$FINAL") ($(du -h "$FINAL" | cut -f1))"
+        SUCESSOS=$((SUCESSOS+1))
+        [ "$(date +%u)" -eq 7 ] && cp "$FINAL" "$PASTA/semanal/"
+        find "$PASTA/diario"  -type f -name 'storage-*' -mtime +$MANTER_DIARIOS -delete
+        find "$PASTA/semanal" -type f -name 'storage-*' -mtime +$((MANTER_SEMANAIS * 7)) -delete
+      fi
+    else
+      log "ERRO: pacote corrompido, descartado"; rm -f "$TMP"; FALHAS=$((FALHAS+1))
+    fi
+  else
+    log "ERRO ao compactar o storage"; rm -f "$TMP"; FALHAS=$((FALHAS+1))
+  fi
+fi
+
 echo
 [ -f "$PASS_FILE" ] || log "AVISO: sem $PASS_FILE — backups NÃO estão criptografados."
 log "Resumo: $SUCESSOS backup(s) gerado(s), $FALHAS falha(s)"

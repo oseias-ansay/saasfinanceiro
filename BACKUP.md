@@ -132,8 +132,28 @@ docker exec n8n-businestriage-n8n-1 cat /home/node/.n8n/config
 **Os `.env`** do Supabase e da API. Sem `JWT_SECRET`, restaurar o banco não
 devolve o sistema: os tokens não validam e ninguém entra.
 
-**Os arquivos do Storage** (comprovantes), em volume próprio do Supabase.
-Relevante quando o upload de comprovante entrar em uso.
+**Cobre também os arquivos do Storage** (comprovantes), num pacote separado em
+`/var/backups/storage`. Eles ficam em volume próprio do Supabase, fora do
+Postgres — o dump do banco guarda apenas a referência ao arquivo. Sem essa
+parte, restaurar devolveria uma lista de comprovantes cujos arquivos não
+existem mais.
+
+O caminho do volume é descoberto a partir do próprio container, porque muda
+conforme a instalação use bind mount ou volume nomeado.
+
+### Restaurar os comprovantes
+
+```bash
+# Descobre onde o storage está montado
+STORAGE=$(docker inspect supabase-storage \
+  --format '{{range .Mounts}}{{if eq .Destination "/var/lib/storage"}}{{.Source}}{{end}}{{end}}')
+
+# Restaura por cima (o tar recria a estrutura de pastas)
+tar -xzf /var/backups/storage/diario/storage-AAAA-MM-DD_HHMM.tar.gz \
+  -C "$(dirname "$STORAGE")"
+
+docker restart supabase-storage
+```
 
 ## Verificação periódica
 
