@@ -61,6 +61,31 @@ export const unsettleSchema = z.object({
   ids: z.array(z.string().uuid()).min(1).max(500),
 });
 
+/**
+ * Edição de um título já existente.
+ *
+ * Não permite alterar `type` nem o parcelamento: mudar uma despesa para
+ * receita, ou o número de parcelas, desmonta a coerência do grupo. Para isso,
+ * o caminho é excluir e lançar de novo — operação explícita, não um efeito
+ * colateral de editar um campo.
+ */
+export const updateTransactionSchema = z
+  .object({
+    description: z.string().trim().min(2).max(200).optional(),
+    amount: money.optional(),
+    due_date: isoDate.optional(),
+    competence_date: isoDate.optional(),
+    category_id: z.string().uuid().nullable().optional(),
+    entity_id: z.string().uuid().nullable().optional(),
+    cost_center_id: z.string().uuid().nullable().optional(),
+    bank_account_id: z.string().uuid().nullable().optional(),
+    document_number: z.string().trim().max(60).nullable().optional(),
+    notes: z.string().trim().max(1000).nullable().optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: 'Nada para atualizar' });
+
+export type UpdateTransactionInput = z.infer<typeof updateTransactionSchema>;
+
 export type CreateTransactionInput = z.infer<typeof createTransactionSchema>;
 export type ListTransactionsQuery = z.infer<typeof listTransactionsSchema>;
 export type SettleInput = z.infer<typeof settleSchema>;

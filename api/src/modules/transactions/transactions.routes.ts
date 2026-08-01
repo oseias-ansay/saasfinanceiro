@@ -6,6 +6,7 @@ import {
   listTransactionsSchema,
   settleSchema,
   unsettleSchema,
+  updateTransactionSchema,
 } from './transactions.schema.js';
 import * as service from './transactions.service.js';
 
@@ -47,6 +48,33 @@ transactionsRouter.post('/settle', WRITE, validate(settleSchema), async (req, re
 transactionsRouter.post('/unsettle', WRITE, validate(unsettleSchema), async (req, res, next) => {
   try {
     res.json(await service.unsettleTransactions(req.supabase, req.body.ids));
+  } catch (e) {
+    next(e);
+  }
+});
+
+transactionsRouter.patch(
+  '/:id',
+  WRITE,
+  validate(updateTransactionSchema),
+  async (req, res, next) => {
+    try {
+      const data = await service.updateTransaction(
+        req.supabase,
+        req.tenantId!,
+        req.params.id!,
+        req.body,
+      );
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+transactionsRouter.delete('/:id', WRITE, async (req, res, next) => {
+  try {
+    res.json(await service.deleteTransaction(req.supabase, req.tenantId!, req.params.id!));
   } catch (e) {
     next(e);
   }

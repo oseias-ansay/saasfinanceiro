@@ -1,5 +1,5 @@
 import type { Db } from '../../lib/supabase.js';
-import { fromPostgrest } from '../../lib/errors.js';
+import { conflict, fromPostgrest, notFound } from '../../lib/errors.js';
 import type {
   CreateTransactionInput,
   ListTransactionsQuery,
@@ -94,6 +94,57 @@ export async function unsettleTransactions(db: Db, ids: string[]) {
   const { data, error } = await db.rpc('fn_unsettle_transactions', { p_ids: ids });
   if (error) throw fromPostgrest(error);
   return { reverted: data ?? 0 };
+}
+
+/**
+ * Edita um título.
+ *
+ * Roda com o client do usuário, então o RLS garante que ele só altera o que
+ * é da própria empresa. Títulos já liquidados são bloqueados: mexer no valor
+ * de algo que já entrou no fluxo de caixa mudaria o saldo histórico sem
+ * deixar rastro. Para corrigir, estorne a baixa primeiro.
+ */
+export async function updateTransaction(
+  db: Db,
+  tenantId: string,
+  id: string,
+  input: Record<string, unknown>,
+) {
+  const { data: atual, error: e1 } = await db
+    .from('transactions')
+    .select('id, status')
+    .eq('tenant_id', tenantId)
+    .eq('id', id)
+    .maybeSingle();
+
+  if (e1) throw fromPostgrest(e1);
+  if (!atual) throw notFound('Lançamento não encontrado');
+  if (atual.status === 'liquidado') {
+    throw conflict('Estorne a baixa antes de editar este lançamento.');
+  }
+
+  const { data, error } = await db
+    .from('transactions')
+    .update(input)
+    .eq('tenant_id', tenantId)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw fromPostgrest(error);
+  return data;
+}
+
+/** Exclui um único título (uma parcela, por exemplo). */
+export async function deleteTransaction(db: Db, tenantId: string, id: string) {
+  const { error, count } = await db
+    .from('transactions')
+    .delete({ count: 'exact' })
+    .eq('tenant_id', tenantId)
+    .eq('id', id);
+
+  if (error) throw fromPostgrest(error);
+  return { deleted: count ?? 0 };
 }
 
 /** Exclui o grupo inteiro de parcelas (o ON DELETE CASCADE cuida dos filhos). */
