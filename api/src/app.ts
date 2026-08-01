@@ -11,6 +11,7 @@ import { errorHandler, notFoundHandler } from './middlewares/error-handler.js';
 import { transactionsRouter } from './modules/transactions/transactions.routes.js';
 import { reportsRouter } from './modules/reports/reports.routes.js';
 import { onboardingRouter } from './modules/onboarding/onboarding.routes.js';
+import { adminRouter } from './modules/admin/admin.routes.js';
 import { n8nRouter } from './modules/webhooks/n8n.routes.js';
 
 export function createApp() {
@@ -41,6 +42,7 @@ export function createApp() {
   app.get('/health', (_req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
 
   app.use('/api/v1', onboardingRouter);
+  app.use('/api/v1/admin', adminRouter);
   app.use('/api/v1/transactions', transactionsRouter);
   app.use('/api/v1/reports', reportsRouter);
   app.use('/api/v1/webhooks/n8n', n8nRouter);

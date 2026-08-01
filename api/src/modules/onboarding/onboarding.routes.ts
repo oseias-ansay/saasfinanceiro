@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { requireAuth, requireTenant, requireRole } from '../../middlewares/auth.js';
 import { validate } from '../../middlewares/validate.js';
@@ -81,42 +82,108 @@ onboardingRouter.get('/tenants', requireAuth, async (req, res, next) => {
   }
 });
 
-const inviteSchema = z.object({
-  email: z.string().email(),
+const membroSchema = z.object({
+  email: z.string().email().transform((v) => v.trim().toLowerCase()),
   role: z.enum(['admin', 'member', 'viewer']).default('member'),
+  /**
+   * 'senha_temporaria' cria a conta já ativa e devolve a senha uma única vez,
+   * para o admin repassar. 'convite' envia e-mail pelo GoTrue — só funciona
+   * com SMTP configurado no Supabase.
+   */
+  modo: z.enum(['senha_temporaria', 'convite']).default('senha_temporaria'),
 });
 
+/** Senha temporária legível: fácil de ditar por telefone, sem caracteres ambíguos. */
+function senhaTemporaria(): string {
+  const alfabeto = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // sem I e O
+  const digitos = '23456789'; // sem 0 e 1
+  const bytes = randomBytes(12);
+  const letras = Array.from({ length: 4 }, (_, i) => alfabeto[bytes[i]! % alfabeto.length]).join('');
+  const nums = Array.from({ length: 4 }, (_, i) => digitos[bytes[i + 4]! % digitos.length]).join('');
+  return `BT-${letras}-${nums}`;
+}
+
 /**
- * Convida um usuário para a empresa.
- * Único lugar da API de usuário que precisa de service_role: criar contas em
- * auth.users é operação administrativa do GoTrue, indisponível para o token
- * do usuário comum. O vínculo em si é gravado com o client do usuário, para
- * o RLS validar que ele é mesmo admin daquela empresa.
+ * Adiciona um usuário à empresa.
+ *
+ * Único lugar da API de usuário que precisa de service_role: criar conta em
+ * auth.users é operação administrativa do GoTrue. O vínculo em si é gravado
+ * com o client do USUÁRIO, para o RLS confirmar que ele é mesmo admin da
+ * empresa — a API não decide isso sozinha.
  */
 onboardingRouter.post(
-  '/tenants/:tenantId/invites',
+  '/tenants/:tenantId/members',
   requireAuth,
   requireTenant,
   requireRole('owner', 'admin'),
-  validate(inviteSchema),
+  validate(membroSchema),
   async (req, res, next) => {
     try {
-      const { email, role } = req.body as z.infer<typeof inviteSchema>;
+      const { email, role, modo } = req.body as z.infer<typeof membroSchema>;
       if (req.params.tenantId !== req.tenantId) throw badRequest('Empresa divergente do header');
 
-      const { data: invited, error: inviteErr } =
-        await supabaseAdmin.auth.admin.inviteUserByEmail(email);
-      if (inviteErr) throw badRequest(`Falha ao convidar: ${inviteErr.message}`);
+      // 1. O usuário já existe na plataforma?
+      const { data: perfil } = await supabaseAdmin
+        .from('profiles')
+        .select('id')
+        .eq('email', email)
+        .maybeSingle();
 
-      const { error } = await req.supabase.from('memberships').insert({
-        tenant_id: req.tenantId!,
-        user_id: invited.user.id,
-        role,
-        invited_by: req.user!.id,
-      });
+      let userId: string | undefined = perfil?.id;
+      let senha: string | undefined;
+      let criado = false;
+
+      // 2. Não existe: cria a conta.
+      if (!userId) {
+        if (modo === 'convite') {
+          const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email);
+          if (error) {
+            throw badRequest(
+              `Não foi possível enviar o convite: ${error.message}. ` +
+                'Se o Supabase não tem SMTP configurado, use o modo "senha temporária".',
+            );
+          }
+          userId = data.user.id;
+        } else {
+          senha = senhaTemporaria();
+          const { data, error } = await supabaseAdmin.auth.admin.createUser({
+            email,
+            password: senha,
+            email_confirm: true, // sem SMTP não há como o usuário confirmar sozinho
+          });
+          if (error) throw badRequest(`Não foi possível criar o acesso: ${error.message}`);
+          userId = data.user.id;
+        }
+
+        criado = true;
+
+        // Espelha o perfil: o trigger cobre cadastros novos, mas garantir aqui
+        // evita depender da ordem de execução.
+        await supabaseAdmin.from('profiles').upsert({ id: userId, email });
+      }
+
+      // 3. Vincula à empresa — com o client do usuário, sujeito ao RLS.
+      const { error } = await req.supabase.from('memberships').upsert(
+        {
+          tenant_id: req.tenantId!,
+          user_id: userId!,
+          role,
+          is_active: true,
+          invited_by: req.user!.id,
+        },
+        { onConflict: 'tenant_id,user_id' },
+      );
       if (error) throw fromPostgrest(error);
 
-      res.status(201).json({ data: { email, role } });
+      res.status(201).json({
+        data: {
+          email,
+          role,
+          usuario_criado: criado,
+          // Devolvida UMA vez. Não fica gravada em lugar nenhum além do hash.
+          senha_temporaria: senha ?? null,
+        },
+      });
     } catch (e) {
       next(e);
     }
