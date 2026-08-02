@@ -4,29 +4,11 @@
 // módulo onde supabaseAdmin é a regra, e não a exceção.
 
 import { Router } from 'express';
-import { timingSafeEqual } from 'node:crypto';
 import rateLimit from 'express-rate-limit';
-import type { NextFunction, Request, Response } from 'express';
-import { env } from '../../config/env.js';
 import { supabaseAdmin } from '../../lib/supabase.js';
-import { unauthorized, fromPostgrest } from '../../lib/errors.js';
+import { fromPostgrest } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
-
-/** Comparação em tempo constante: evita descobrir o segredo por timing. */
-function safeEqual(a: string, b: string) {
-  const ba = Buffer.from(a);
-  const bb = Buffer.from(b);
-  return ba.length === bb.length && timingSafeEqual(ba, bb);
-}
-
-function requireWebhookSecret(req: Request, _res: Response, next: NextFunction) {
-  const provided = req.header('x-n8n-secret') ?? '';
-  if (!safeEqual(provided, env.N8N_WEBHOOK_SECRET)) {
-    logger.warn({ ip: req.ip, path: req.path }, 'Webhook com segredo inválido');
-    return next(unauthorized('Segredo inválido'));
-  }
-  next();
-}
+import { requireWebhookSecret } from './secret.js';
 
 export const n8nRouter = Router();
 

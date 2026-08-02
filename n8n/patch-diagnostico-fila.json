@@ -1,0 +1,220 @@
+{
+  "meta": {
+    "instanceId": "0865a481a3af16acb20b5d0deff799f572f885e6dc3c5be8f983425c9f63396e"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://finance-api:3333/api/v1/webhooks/n8n/diagnosticos",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ protocolo: $json.protocolo, tipo: 'financeiro', razao_social: $('Calcular Indicadores e Score').first().json.identificacao.razao_social, cnpj: $('Calcular Indicadores e Score').first().json.identificacao.cnpj_formatado || $('Calcular Indicadores e Score').first().json.identificacao.cnpj, email: $json.email_cliente, telefone: $('Calcular Indicadores e Score').first().json.identificacao.telefone, setor: $('Calcular Indicadores e Score').first().json.identificacao.setor, mes_referencia: $('Calcular Indicadores e Score').first().json.identificacao.mes_referencia, score_total: $json.diagnostico.scoreTotal, nivel: $json.diagnostico.nivelSaude, entrada: $('Calcular Indicadores e Score').first().json.entrada, indicadores: $('Calcular Indicadores e Score').first().json.indicadores, alertas: $('Calcular Indicadores e Score').first().json.alertas, analise: { resumoExecutivo: $json.diagnostico.resumoExecutivo, pilares: $json.pilares, gargalos: $json.gargalosIdentificados, planoDeAcao: $json.planoDeAcao, relatorioDetalhadoHtml: $json.relatorio_detalhado_html || '' } }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "c7a41f02-1d55-4a7e-9f3b-0d2c8a5e1101",
+      "name": "API — Enfileirar Diagnóstico",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        112,
+        688
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SUBSTITUA_PELO_ID_DA_CREDENCIAL",
+          "name": "Finance API - x-n8n-secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=http://finance-api:3333/api/v1/webhooks/n8n/diagnosticos/{{ $json.protocolo }}/pdf",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "c7a41f02-1d55-4a7e-9f3b-0d2c8a5e1105",
+      "name": "API — Baixar PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        336,
+        688
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 8000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SUBSTITUA_PELO_ID_DA_CREDENCIAL",
+          "name": "Finance API - x-n8n-secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "={{ $binary.data.fileName || ($('API — Enfileirar Diagnóstico').first().json.protocolo + '.pdf') }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "SUBSTITUA_PELA_PASTA_DO_DRIVE"
+        },
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "id": "c7a41f02-1d55-4a7e-9f3b-0d2c8a5e1106",
+      "name": "Drive — Arquivar Relatório",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        560,
+        688
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "SUBSTITUA_PELO_ID_DA_CREDENCIAL",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Monta a confirmação imediata ao lead e a notificação interna.\n//\n// Nenhum PDF é anexado aqui. O relatório foi arquivado no Drive e\n// segue para o cliente no fluxo das 8h — a notificação traz só o\n// essencial para você decidir se deixa sair ou segura.\n// ============================================================\n\nconst drive = $input.first().json;\nconst api = $('API — Enfileirar Diagnóstico').first().json;\nconst cons = $('Consolidar Diagnóstico').first().json;\nconst dados = $('Calcular Indicadores e Score').first().json;\nconst s = dados.score;\n\nconst esc = t => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst empresa = dados.identificacao.razao_social || 'sua empresa';\n\n// Formatado no fuso de Brasília: o container roda em UTC e a data crua\n// mostraria 11h para um envio das 8h.\nconst quando = new Date(api.liberar_em).toLocaleString('pt-BR', {\n  timeZone: 'America/Sao_Paulo',\n  weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'\n});\n\n// O nó do Drive nem sempre devolve webViewLink; o id vem sempre.\nconst linkDrive = drive.webViewLink || (drive.id ? 'https://drive.google.com/file/d/' + drive.id + '/view' : null);\n\n// ---------- Confirmação ao lead (sai agora) ----------\nconst htmlConfirmacao = `<!DOCTYPE html><html lang='pt-BR'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'></head>\n<body style='margin:0;padding:0;background:#F1F5F9;font-family:Inter,Arial,Helvetica,sans-serif;'>\n<table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='background:#F1F5F9;padding:24px 12px;'>\n<tr><td align='center'>\n<table role='presentation' width='560' cellpadding='0' cellspacing='0' style='max-width:560px;width:100%;background:#FFFFFF;border-radius:14px;overflow:hidden;'>\n  <tr><td style='background:#0B1E3B;padding:24px 30px;'>\n    <div style='font-size:19px;font-weight:800;color:#FFFFFF;letter-spacing:-0.02em;'>Business Triage</div>\n    <div style='font-size:13px;color:#94A3B8;margin-top:4px;'>Confirmação de recebimento</div>\n  </td></tr>\n  <tr><td style='padding:26px 30px 8px;'>\n    <p style='margin:0 0 14px;color:#334155;font-size:15px;line-height:1.7;'>Recebemos os dados de <strong>${esc(empresa)}</strong>.</p>\n    <p style='margin:0 0 14px;color:#334155;font-size:15px;line-height:1.7;'>Seu diagnóstico está sendo preparado e será enviado para este mesmo endereço <strong>${esc(quando)}</strong>, em PDF.</p>\n    <p style='margin:0 0 14px;color:#334155;font-size:15px;line-height:1.7;'>O relatório traz a pontuação da sua empresa em quatro pilares, os indicadores calculados a partir do que você informou — cada um com a fórmula usada — e um plano de ação priorizado.</p>\n    <div style='margin:22px 0 6px;padding:14px 16px;background:#F8FAFC;border-left:3px solid #0B1E3B;border-radius:6px;'>\n      <div style='font-size:11px;color:#64748B;text-transform:uppercase;letter-spacing:0.06em;font-weight:700;'>Protocolo</div>\n      <div style='font-size:15px;font-weight:800;color:#0B1E3B;margin-top:3px;'>${esc(api.protocolo)}</div>\n    </div>\n  </td></tr>\n  <tr><td style='background:#F8FAFC;border-top:1px solid #E2E8F0;padding:18px 30px;font-size:11.5px;color:#64748B;line-height:1.6;'>\n    Guarde este protocolo. Se precisar falar conosco antes, é só responder a este e-mail.\n  </td></tr>\n</table>\n</td></tr></table></body></html>`;\n\n// ---------- Notificação interna ----------\n// Curta de propósito: os números completos estão no PDF, a um clique.\n// Repetir tudo aqui faria você ler duas vezes a mesma coisa.\nconst linha = (rot, val) => `<tr><td style='padding:6px 10px;border-bottom:1px solid #E2E8F0;color:#64748B;'>${rot}</td><td style='padding:6px 10px;border-bottom:1px solid #E2E8F0;color:#0B1E3B;font-weight:600;text-align:right;'>${val}</td></tr>`;\n\nconst htmlInterno = `<!DOCTYPE html><html lang='pt-BR'><head><meta charset='utf-8'></head>\n<body style='margin:0;padding:20px;background:#F1F5F9;font-family:Inter,Arial,Helvetica,sans-serif;'>\n<table role='presentation' width='560' cellpadding='0' cellspacing='0' style='max-width:560px;background:#FFFFFF;border-radius:12px;overflow:hidden;'>\n  <tr><td style='background:#0B1E3B;padding:18px 22px;color:#FFFFFF;font-size:15px;font-weight:800;'>Novo diagnóstico financeiro</td></tr>\n  <tr><td style='padding:18px 22px;'>\n    <div style='font-size:17px;font-weight:800;color:#0B1E3B;'>${esc(empresa)}</div>\n    <div style='font-size:12.5px;color:#64748B;margin:2px 0 14px;'>${esc(dados.identificacao.cnpj_formatado || '')} &middot; ${esc(dados.identificacao.setor || '')} &middot; ref. ${esc(dados.identificacao.mes_referencia || '')}</div>\n    <div style='display:inline-block;background:${s.corIdentificadora};color:#FFFFFF;font-size:13px;font-weight:800;padding:7px 16px;border-radius:999px;'>Score ${s.scoreTotal}/100 &middot; ${esc(s.nivelSaude)}</div>\n\n    <table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='margin-top:16px;font-size:13px;border-collapse:collapse;'>\n      ${linha('Margem líquida', (s.pilares.lucratividade.margemLiquidaPercentual ?? '-') + '%')}\n      ${linha('Reserva operacional', (s.pilares.liquidez.reservaMeses ?? '-') + ' meses')}\n      ${linha('Ciclo financeiro', s.pilares.liquidez.cicloFinanceiroDias + ' dias')}\n    </table>\n\n    <div style='margin-top:14px;font-size:13px;color:#DC2626;'><strong>Críticos:</strong> ${esc(dados.indicadores_criticos.join(', ') || 'nenhum')}</div>\n    <div style='margin-top:4px;font-size:13px;color:#D97706;'><strong>Atenção:</strong> ${esc(dados.indicadores_atencao.join(', ') || 'nenhum')}</div>\n\n    ${linkDrive ? `<div style='margin-top:18px;'><a href='${linkDrive}' style='display:inline-block;background:#0B1E3B;color:#FFFFFF;font-size:13px;font-weight:800;padding:11px 22px;border-radius:8px;text-decoration:none;'>Abrir o relatório em PDF</a></div>` : `<div style='margin-top:18px;font-size:13px;color:#DC2626;'><strong>O PDF não foi arquivado no Drive.</strong> Confira a execução deste workflow.</div>`}\n\n    <div style='margin-top:20px;padding-top:16px;border-top:1px solid #E2E8F0;'>\n      <div style='font-size:11px;color:#64748B;text-transform:uppercase;letter-spacing:0.06em;font-weight:700;'>Envio programado</div>\n      <div style='font-size:15px;font-weight:800;color:#0B1E3B;margin:3px 0 10px;'>${esc(quando)}</div>\n      <p style='margin:0 0 12px;color:#334155;font-size:13px;line-height:1.6;'>O lead já recebeu a confirmação. O relatório sai automaticamente no horário acima. Se algo estiver errado, segure agora:</p>\n      <a href='${api.hold_url}' style='display:inline-block;background:#DC2626;color:#FFFFFF;font-size:13px;font-weight:800;padding:11px 22px;border-radius:8px;text-decoration:none;'>Segurar este envio</a>\n      <p style='margin:10px 0 0;color:#94A3B8;font-size:11.5px;line-height:1.5;'>O link deixa de funcionar depois que o relatório é enviado.</p>\n    </div>\n\n    <div style='margin-top:18px;font-size:12.5px;color:#64748B;'>Contato: ${esc(dados.identificacao.email || '')} &middot; ${esc(dados.identificacao.telefone || '')}<br>Protocolo ${esc(api.protocolo)}</div>\n  </td></tr>\n</table></body></html>`;\n\nreturn [{\n  json: {\n    protocolo: api.protocolo,\n    liberar_em: api.liberar_em,\n    liberar_em_texto: quando,\n    link_drive: linkDrive,\n    email_cliente: cons.email_cliente,\n    assunto_confirmacao: 'Recebemos seus dados — ' + empresa + ' (protocolo ' + api.protocolo + ')',\n    html_confirmacao: htmlConfirmacao,\n    assunto_interno: '[' + String(s.nivelSaude).toUpperCase() + ' ' + s.scoreTotal + '/100] ' + empresa + ' — envia ' + quando,\n    html_interno: htmlInterno\n  }\n}];"
+      },
+      "id": "c7a41f02-1d55-4a7e-9f3b-0d2c8a5e1102",
+      "name": "Montar Avisos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        784,
+        688
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.email_cliente }}",
+        "subject": "={{ $json.assunto_confirmacao }}",
+        "message": "={{ $json.html_confirmacao }}",
+        "options": {}
+      },
+      "id": "c7a41f02-1d55-4a7e-9f3b-0d2c8a5e1103",
+      "name": "Gmail — Confirmação ao Lead",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1024,
+        592
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "5goQvExfE4pVoTRL",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Fila de envio + PDF no Drive\n\nO relatório **não sai mais no corpo do e-mail nem na hora**. O caminho agora é:\n\n1. `Consolidar Diagnóstico` — inalterado, monta os textos.\n2. `API — Enfileirar Diagnóstico` grava tudo no Postgres e devolve a janela de envio (próximo dia útil, 8h) e o link \"Segurar\".\n3. `API — Baixar PDF` pega o relatório renderizado em A4 com a identidade visual.\n4. `Drive — Arquivar Relatório` guarda o arquivo na pasta.\n5. `Montar Avisos` escreve a confirmação ao lead e a notificação interna, já com o link do PDF no Drive.\n\nO relatório em si é entregue pelo workflow **Envio de Diagnósticos (8h)**, em PDF anexo.\n\n**Apague** o nó `Gmail — Relatório ao Cliente` deste fluxo.\n\n**Configure** a pasta no nó do Drive e as credenciais nos três nós novos.\n\n**Uma linha em `Consolidar Diagnóstico`:** no objeto do `return`, acrescente\n\n`relatorio_detalhado_html: ia.relatorioDetalhadoHtml || '',`\n\nSem isso o PDF sai sem a análise longa da IA. É a única alteração num nó existente — e não toca em nenhum número.\n\nO PDF é renderizado **uma vez** e guardado no Storage. O arquivo que você abre no Drive é byte a byte o que o cliente recebe.",
+        "height": 440,
+        "width": 420,
+        "color": 3
+      },
+      "id": "c7a41f02-1d55-4a7e-9f3b-0d2c8a5e1104",
+      "name": "Nota — fila e PDF",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        336,
+        1000
+      ]
+    }
+  ],
+  "connections": {
+    "Consolidar Diagnóstico": {
+      "main": [
+        [
+          {
+            "node": "API — Enfileirar Diagnóstico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API — Enfileirar Diagnóstico": {
+      "main": [
+        [
+          {
+            "node": "API — Baixar PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API — Baixar PDF": {
+      "main": [
+        [
+          {
+            "node": "Drive — Arquivar Relatório",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drive — Arquivar Relatório": {
+      "main": [
+        [
+          {
+            "node": "Montar Avisos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar Avisos": {
+      "main": [
+        [
+          {
+            "node": "Gmail — Confirmação ao Lead",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail — Notificação Interna",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

@@ -13,6 +13,10 @@ import { reportsRouter } from './modules/reports/reports.routes.js';
 import { onboardingRouter } from './modules/onboarding/onboarding.routes.js';
 import { adminRouter } from './modules/admin/admin.routes.js';
 import { n8nRouter } from './modules/webhooks/n8n.routes.js';
+import {
+  diagnosticosRouter,
+  diagnosticosPublicRouter,
+} from './modules/webhooks/diagnosticos.routes.js';
 
 export function createApp() {
   const app = express();
@@ -45,7 +49,15 @@ export function createApp() {
   app.use('/api/v1/admin', adminRouter);
   app.use('/api/v1/transactions', transactionsRouter);
   app.use('/api/v1/reports', reportsRouter);
+  // Antes do n8nRouter de propósito: montado depois, o prefixo mais curto
+  // casaria primeiro e a requisição passaria por dois rate limits e duas
+  // verificações de segredo antes de chegar aqui.
+  app.use('/api/v1/webhooks/n8n/diagnosticos', diagnosticosRouter);
   app.use('/api/v1/webhooks/n8n', n8nRouter);
+
+  // Fora de /api: é um link clicado por um humano, no e-mail, e devolve
+  // uma página HTML — não faz parte da API consumida pelo front.
+  app.use('/diagnosticos', diagnosticosPublicRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

@@ -1,0 +1,328 @@
+{
+  "name": "Envio de Diagnósticos (8h)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "d5b81a10-3e42-4c77-9a01-7f5c2b6e0001",
+      "name": "Todo dia útil, 8h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -720,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://finance-api:3333/api/v1/webhooks/n8n/diagnosticos/fila",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "d5b81a10-3e42-4c77-9a01-7f5c2b6e0002",
+      "name": "API — Buscar Fila",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -480,
+        400
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SUBSTITUA_PELO_ID_DA_CREDENCIAL",
+          "name": "Finance API - x-n8n-secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "itens",
+        "options": {}
+      },
+      "id": "d5b81a10-3e42-4c77-9a01-7f5c2b6e0003",
+      "name": "Separar Itens",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=http://finance-api:3333/api/v1/webhooks/n8n/diagnosticos/{{ $json.protocolo }}/pdf",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "d5b81a10-3e42-4c77-9a01-7f5c2b6e0010",
+      "name": "API — Baixar PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -20,
+        400
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 8000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SUBSTITUA_PELO_ID_DA_CREDENCIAL",
+          "name": "Finance API - x-n8n-secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Separar Itens').item.json.email }}",
+        "subject": "={{ $('Separar Itens').item.json.assunto_cliente }}",
+        "message": "={{ $('Separar Itens').item.json.html_cliente }}",
+        "options": {
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {
+                "property": "data"
+              }
+            ]
+          }
+        }
+      },
+      "id": "d5b81a10-3e42-4c77-9a01-7f5c2b6e0004",
+      "name": "Gmail — Relatório ao Cliente",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        216,
+        400
+      ],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "5goQvExfE4pVoTRL",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://finance-api:3333/api/v1/webhooks/n8n/diagnosticos/{{ $('Separar Itens').item.json.protocolo }}/status",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ status: 'enviado' }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "d5b81a10-3e42-4c77-9a01-7f5c2b6e0005",
+      "name": "Marcar Enviado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        272,
+        304
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SUBSTITUA_PELO_ID_DA_CREDENCIAL",
+          "name": "Finance API - x-n8n-secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://finance-api:3333/api/v1/webhooks/n8n/diagnosticos/{{ $('Separar Itens').item.json.protocolo }}/status",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ status: 'falhou', erro: ($json.error && $json.error.message) || $json.message || 'Falha no envio pelo Gmail' }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "d5b81a10-3e42-4c77-9a01-7f5c2b6e0006",
+      "name": "Marcar Falha",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        272,
+        512
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SUBSTITUA_PELO_ID_DA_CREDENCIAL",
+          "name": "Finance API - x-n8n-secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "oseias.ansay@gmail.com",
+        "subject": "=[FALHA] Diagnóstico não enviado — {{ $('Separar Itens').item.json.razao_social }}",
+        "message": "=<p style='font-family:Arial,sans-serif;color:#334155;'>O relatório do protocolo <strong>{{ $('Separar Itens').item.json.protocolo }}</strong> ({{ $('Separar Itens').item.json.razao_social }}) não foi entregue para {{ $('Separar Itens').item.json.email }}.</p><p style='font-family:Arial,sans-serif;color:#334155;'>Ele fica marcado como <strong>falhou</strong> no banco e será retentado nas próximas execuções, até 3 vezes. Depois disso sai da fila — envie manualmente ou corrija o endereço.</p>",
+        "options": {}
+      },
+      "id": "d5b81a10-3e42-4c77-9a01-7f5c2b6e0007",
+      "name": "Gmail — Avisar Falha",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        528,
+        512
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "5goQvExfE4pVoTRL",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Envio de Diagnósticos — 8h, dias úteis\n\nEntrega, em PDF anexo, os relatórios que ficaram na fila do dia anterior.\n\n**Não gera nada.** O PDF foi renderizado no envio do formulário e está guardado no Storage; a API só devolve o mesmo arquivo. O que o cliente recebe é byte a byte o que você abriu no Drive.\n\n**Quem entra na fila:** status `pendente` e `liberar_em` já vencido. Quem você segurou pelo link fica de fora e não sai sozinho nunca mais — para liberar, mude o status no banco.\n\n**Fila vazia é o caso normal.** O Split Out não produz item nenhum e o workflow encerra sem enviar nada. Isso não é erro.\n\n**Sem BCC.** A cópia dos relatórios vive na pasta do Drive, não na sua caixa de entrada.\n\n**Antes de ativar:**\n1. Credenciais `Finance API - x-n8n-secret` e Gmail nos cinco nós.\n2. Configure o fuso em Settings → Timezone: **America/Sao_Paulo**. Sem isso o cron dispara às 8h UTC, que são 5h da manhã aqui.\n3. Rode manualmente uma vez com um diagnóstico de teste na fila.\n4. Ligue o toggle Active.\n\n**Retentativa:** o banco conta as tentativas e para na terceira. Um e-mail inválido não fica sendo retentado todo dia para sempre.",
+        "height": 520,
+        "width": 420,
+        "color": 4
+      },
+      "id": "d5b81a10-3e42-4c77-9a01-7f5c2b6e0008",
+      "name": "Leia-me",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1180,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Por que dois caminhos\n\nO nó do Gmail está com `onError: continueErrorOutput`. A saída de cima é sucesso, a de baixo é falha.\n\nSem isso, um endereço inválido no terceiro item da fila derrubaria a execução inteira e os leads seguintes não receberiam nada — e você só descobriria pela reclamação.\n\nCada item é marcado individualmente no banco, então uma falha isolada não contamina o resto.",
+        "height": 260,
+        "width": 380,
+        "color": 7
+      },
+      "id": "d5b81a10-3e42-4c77-9a01-7f5c2b6e0009",
+      "name": "Nota — tratamento de falha",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        720
+      ]
+    }
+  ],
+  "connections": {
+    "Todo dia útil, 8h": {
+      "main": [
+        [
+          {
+            "node": "API — Buscar Fila",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API — Buscar Fila": {
+      "main": [
+        [
+          {
+            "node": "Separar Itens",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Separar Itens": {
+      "main": [
+        [
+          {
+            "node": "API — Baixar PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API — Baixar PDF": {
+      "main": [
+        [
+          {
+            "node": "Gmail — Relatório ao Cliente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail — Relatório ao Cliente": {
+      "main": [
+        [
+          {
+            "node": "Marcar Enviado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Marcar Falha",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar Falha": {
+      "main": [
+        [
+          {
+            "node": "Gmail — Avisar Falha",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "0865a481a3af16acb20b5d0deff799f572f885e6dc3c5be8f983425c9f63396e"
+  }
+}
