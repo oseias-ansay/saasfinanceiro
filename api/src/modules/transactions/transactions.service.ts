@@ -21,17 +21,20 @@ export async function createTransaction(db: Db, tenantId: string, input: CreateT
     p_description: input.description,
     p_amount: input.amount,
     p_due_date: input.due_date,
-    p_competence_date: input.competence_date ?? null,
-    p_category_id: input.category_id ?? null,
-    p_entity_id: input.entity_id ?? null,
-    p_cost_center_id: input.cost_center_id ?? null,
-    p_bank_account_id: input.bank_account_id ?? null,
+    // Parâmetros opcionais são omitidos, não enviados como null: é assim que
+    // a função aplica o valor padrão declarado no banco. Passar null seria
+    // dizer "quero nulo", que é diferente de "não informei".
+    p_competence_date: input.competence_date ?? undefined,
+    p_category_id: input.category_id ?? undefined,
+    p_entity_id: input.entity_id ?? undefined,
+    p_cost_center_id: input.cost_center_id ?? undefined,
+    p_bank_account_id: input.bank_account_id ?? undefined,
     p_installments: input.installments,
     p_frequency: input.frequency,
     p_amount_mode: input.amount_mode,
     p_competence_mode: input.competence_mode,
-    p_document_number: input.document_number ?? null,
-    p_notes: input.notes ?? null,
+    p_document_number: input.document_number ?? undefined,
+    p_notes: input.notes ?? undefined,
   });
 
   if (error) throw fromPostgrest(error);
@@ -82,8 +85,8 @@ export async function settleTransactions(db: Db, input: SettleInput) {
   const { data, error } = await db.rpc('fn_settle_transactions', {
     p_ids: input.ids,
     p_paid_date: input.paid_date ?? new Date().toISOString().slice(0, 10),
-    p_bank_account_id: input.bank_account_id ?? null,
-    p_paid_amount: input.paid_amount ?? null,
+    p_bank_account_id: input.bank_account_id ?? undefined,
+    p_paid_amount: input.paid_amount ?? undefined,
   });
 
   if (error) throw fromPostgrest(error);
@@ -125,7 +128,10 @@ export async function updateTransaction(
 
   const { data, error } = await db
     .from('transactions')
-    .update(input)
+    // O cast é necessário porque `input` vem validado pelo Zod como um objeto
+    // genérico; os campos já foram conferidos lá, mas o TypeScript não tem
+    // como saber disso a partir de Record<string, unknown>.
+    .update(input as never)
     .eq('tenant_id', tenantId)
     .eq('id', id)
     .select()

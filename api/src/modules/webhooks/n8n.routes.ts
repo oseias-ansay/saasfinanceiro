@@ -43,8 +43,10 @@ n8nRouter.use(
 n8nRouter.post('/generate-recurring', async (req, res, next) => {
   try {
     const { data, error } = await supabaseAdmin.rpc('fn_generate_recurring', {
-      p_tenant_id: (req.body?.tenant_id as string | undefined) ?? null,
-      p_horizon: (req.body?.horizon as string | undefined) ?? null,
+      // Omitidos quando ausentes: a função usa o padrão (todos os tenants,
+      // horizonte de cada template).
+      p_tenant_id: req.body?.tenant_id as string | undefined,
+      p_horizon: req.body?.horizon as string | undefined,
     });
     if (error) throw fromPostgrest(error);
 
