@@ -85,18 +85,30 @@ fi
 echo
 echo "3. PORTAS EXPOSTAS À INTERNET"
 echo "   Banco e painéis nunca devem escutar em 0.0.0.0."
-EXPOSTAS=$(ss -tlnp 2>/dev/null | grep -E '0\.0\.0\.0:|\*:' | grep -vE ':(80|443|22)\s' || true)
-if [ -n "$EXPOSTAS" ]; then
-  echo "$EXPOSTAS" | while read -r linha; do
-    PORTA=$(echo "$linha" | grep -oE '0\.0\.0\.0:[0-9]+|\*:[0-9]+' | head -1 | cut -d: -f2)
-    case "$PORTA" in
-      5432|6543|3306|27017|6379) falha "porta $PORTA (banco de dados) aberta para a internet" ;;
-      *) alerta "porta $PORTA exposta — confirme se é intencional" ;;
-    esac
-  done
-else
-  ok "somente 22, 80 e 443 expostas"
-fi
+# Extrai só a porta do endereço local, cobrindo IPv4 (0.0.0.0:80),
+# IPv6 ([::]:80) e o formato abreviado (*:80). A versão anterior lia apenas
+# IPv4 e reportava linhas vazias para as demais.
+PORTAS=$(ss -tlnH 2>/dev/null \
+  | awk '{print $4}' \
+  | grep -E '^(0\.0\.0\.0|\*|\[::\]):' \
+  | sed 's/.*://' \
+  | grep -E '^[0-9]+$' \
+  | sort -un)
+
+ALGUMA=0
+for PORTA in $PORTAS; do
+  case "$PORTA" in
+    22|80|443) continue ;;
+    5432|6543|3306|27017|6379|9200)
+      falha "porta $PORTA (banco de dados) aberta para a internet"; ALGUMA=1 ;;
+    *)
+      SERVICO=$(ss -tlnpH 2>/dev/null | awk -v p=":$PORTA\$" '$4 ~ p {print $6}' \
+                 | grep -oE 'users:\(\("[^"]+' | head -1 | sed 's/.*"//')
+      alerta "porta $PORTA exposta${SERVICO:+ ($SERVICO)} — confirme se é intencional"
+      ALGUMA=1 ;;
+  esac
+done
+[ "$ALGUMA" -eq 0 ] && ok "somente 22, 80 e 443 expostas"
 
 # ---------------------------------------------------------------------
 echo
