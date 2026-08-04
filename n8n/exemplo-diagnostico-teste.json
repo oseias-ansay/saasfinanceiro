@@ -1,0 +1,42 @@
+{
+  "protocolo": "TESTE-0001",
+  "tipo": "financeiro",
+  "razao_social": "Padaria São João Ltda",
+  "cnpj": "11.222.333/0001-81",
+  "email": "oseias.ansay@gmail.com",
+  "setor": "Alimentação",
+  "mes_referencia": "07/2026",
+  "score_total": 47,
+  "nivel": "Atenção",
+  "entrada": { "dre": { "faturamento_bruto": 180000 } },
+  "indicadores": { "ponto_equilibrio_rs": 152000, "ncg_rs": 38000 },
+  "alertas": [
+    { "indicador": "Margem de Contribuição", "valor": 31.4, "unidade": "%", "status": "amarelo", "formula": "(Faturamento - Impostos - Custos Variáveis) / Faturamento" },
+    { "indicador": "Margem Líquida", "valor": 4.2, "unidade": "%", "status": "amarelo", "formula": "Lucro Líquido / Faturamento" },
+    { "indicador": "Reserva Operacional", "valor": 0.8, "unidade": "meses", "status": "vermelho", "formula": "Saldo de Caixa / Despesas Fixas" },
+    { "indicador": "Ciclo Financeiro", "valor": 44, "unidade": "dias", "status": "amarelo", "formula": "PME + PMR - PMP" },
+    { "indicador": "Folga de Capital de Giro", "valor": -12400, "unidade": "R$", "status": "vermelho", "formula": "Saldo de Caixa - NCG" },
+    { "indicador": "Cobertura de Juros", "valor": null, "unidade": "x", "status": "sem_dados", "formula": "Lucro Líquido / Juros Mensais" }
+  ],
+  "analise": {
+    "resumoExecutivo": "A empresa opera com margem apertada e reserva de caixa insuficiente para menos de um mês de despesas fixas. O ciclo financeiro de 44 dias obriga a financiar a operação antes de receber, e a folga de capital de giro já está negativa em R$ 12.400.",
+    "pilares": {
+      "lucratividade": { "pontos": 18, "avaliacao": "Margem líquida de 4,2% e margem de contribuição de 31,4%. O resultado existe, mas não sobra o suficiente para recompor caixa." },
+      "liquidez": { "pontos": 10, "avaliacao": "Reserva de 0,8 mês. Qualquer atraso relevante de recebimento vira aperto de caixa em duas semanas." },
+      "endividamento": { "pontos": 12, "avaliacao": "Comprometimento de 9% da receita com parcelas, dentro do aceitável." },
+      "governanca": { "pontos": 7, "avaliacao": "Contas PF e PJ eventualmente misturadas, o que distorce o resultado apurado." }
+    },
+    "gargalos": [
+      "Reserva operacional de 0,8 mês, abaixo do mínimo de 1,5 mês.",
+      "Ciclo financeiro de 44 dias exige capital de giro de R$ 38.000, e há apenas R$ 25.600 em caixa.",
+      "Mistura eventual de contas PF e PJ compromete a confiabilidade do lucro apurado."
+    ],
+    "planoDeAcao": [
+      { "prioridade": "Alta", "pilar": "Liquidez", "acaoRecomendada": "Negociar prazo com os três maiores fornecedores de 30 para 45 dias, em até 60 dias. Reduz o ciclo financeiro em 15 dias e libera cerca de R$ 13.000." },
+      { "prioridade": "Alta", "pilar": "Liquidez", "acaoRecomendada": "Constituir reserva mínima de R$ 48.000, equivalente a 1,5 mês de despesas fixas, retendo 30% do resultado mensal." },
+      { "prioridade": "Média", "pilar": "Governança", "acaoRecomendada": "Abrir conta PJ exclusiva e migrar todas as despesas do negócio em 30 dias." },
+      { "prioridade": "Baixa", "pilar": "Lucratividade", "acaoRecomendada": "Revisar a precificação dos cinco itens de maior volume até o fim do trimestre." }
+    ],
+    "relatorioDetalhadoHtml": "<h2>Rentabilidade e Ponto de Equilíbrio</h2><p>Com faturamento de R$ 180.000 e ponto de equilíbrio em R$ 152.000, a margem de segurança é de 15,6%. Uma queda de vendas de um sexto já levaria a empresa ao prejuízo.</p><h2>Caixa e Ciclo Financeiro</h2><p>O ciclo de 44 dias significa que a empresa paga fornecedores e salários bem antes de receber dos clientes. Essa diferença precisa ser financiada — hoje ela é, por falta de alternativa, financiada pelo próprio caixa operacional.</p><h3>O que acontece em seis meses sem mudança</h3><p>Mantidos a margem e o ciclo atuais, a reserva se esgota e a empresa passa a depender de antecipação de recebíveis, cujo custo consome a margem que já é estreita.</p><h2>Limitações</h2><p>O formulário não coleta balanço patrimonial, então indicadores de estrutura de capital não puderam ser calculados.</p>"
+  }
+}
