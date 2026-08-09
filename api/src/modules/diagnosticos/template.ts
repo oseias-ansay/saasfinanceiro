@@ -254,9 +254,61 @@ function tabelaPlano(d: DiagnosticoRegistro): string {
 }
 
 // ---------------------------------------------------------------------
-// PDF
+// Convite (substitui o plano de ação na cópia do cliente)
+//
+// O diagnóstico mostra O QUÊ está errado e QUANTO custa. A sequência de
+// execução é o objeto da consultoria — entregá-la aqui esvazia a reunião
+// antes que ela aconteça. O plano continua sendo gerado e vai íntegro na
+// cópia interna, que é a que fica no Drive.
 // ---------------------------------------------------------------------
-export function montarHtmlImpressao(d: DiagnosticoRegistro): string {
+const WHATSAPP = '5541992922623';
+const WHATSAPP_VISIVEL = '(41) 99292-2623';
+
+function blocoConvite(d: DiagnosticoRegistro): string {
+  const rotulo = d.tipo === 'comercial' ? 'Comercial' : 'Financeiro';
+  const texto = encodeURIComponent(
+    `Olá! Recebi meu Diagnóstico ${rotulo} (protocolo ${d.protocolo}) e quero agendar os 30 minutos.`,
+  );
+  const link = `https://wa.me/${WHATSAPP}?text=${texto}`;
+
+  return `
+<h2 class="quebrar-antes">E o plano de ação?</h2>
+<p>Existe um plano para cada gargalo apontado acima — com etapa, meta numérica e prazo definidos.
+Ele não está neste relatório porque a <strong>sequência</strong> depende do seu contexto: da estrutura
+que a empresa já tem, do caixa disponível e de quanto a operação consegue absorver por mês.</p>
+<p>Atacar na ordem errada custa dinheiro e desgasta a equipe. Definir essa ordem é o assunto da conversa.</p>
+<div style="margin-top:6mm;padding:6mm;background:${FUNDO};border:1px solid ${BORDA};border-radius:3mm;">
+  <div style="font-size:12pt;font-weight:800;color:${MARINHO};">Trinta minutos, sem custo e sem compromisso</div>
+  <div style="font-size:10pt;color:${GRAFITE};margin-top:2mm;line-height:1.6;">
+    Analisamos juntos os pontos deste relatório e definimos por onde começar.
+  </div>
+  <div style="margin-top:4mm;font-size:11pt;font-weight:800;color:${MARINHO};">
+    <a href="${link}" style="color:${MARINHO};text-decoration:none;">WhatsApp ${WHATSAPP_VISIVEL}</a>
+  </div>
+</div>`;
+}
+
+const BANNER_INTERNO = `
+<div style="margin:0 0 6mm;padding:4mm 5mm;background:#FEF2F2;border-left:1.2mm solid #DC2626;">
+  <div style="font-size:11pt;font-weight:800;color:#991B1B;">Cópia interna — não enviar ao cliente</div>
+  <div style="font-size:9pt;color:${GRAFITE};margin-top:1mm;line-height:1.5;">
+    Este documento inclui o plano de ação completo. A versão que o cliente recebe traz o diagnóstico
+    e o convite para a conversa, sem a sequência de execução.
+  </div>
+</div>`;
+
+// ---------------------------------------------------------------------
+// PDF
+//
+// `incluirPlano` distingue as duas cópias. O padrão é `false`: se algum
+// chamador novo esquecer o parâmetro, o erro cai para o lado seguro —
+// o cliente recebe de menos, nunca de mais.
+// ---------------------------------------------------------------------
+export function montarHtmlImpressao(
+  d: DiagnosticoRegistro,
+  opcoes: { incluirPlano?: boolean } = {},
+): string {
+  const incluirPlano = opcoes.incluirPlano === true;
   const score = Number(d.score_total ?? 0);
   const cor = corDoScore(score);
   const resumo = d.analise?.resumoExecutivo ?? '';
@@ -369,6 +421,7 @@ export function montarHtmlImpressao(d: DiagnosticoRegistro): string {
 ${capa(d, score, cor)}
 
 <div class="conteudo">
+  ${incluirPlano ? BANNER_INTERNO : ''}
 
   <h2 style="margin-top:0;">Resumo executivo</h2>
   <div class="destaque"><p style="margin:0;">${esc(resumo)}</p></div>
@@ -379,7 +432,7 @@ ${capa(d, score, cor)}
 
   ${tabelaSemaforo(d)}
   ${listaGargalos(d)}
-  ${tabelaPlano(d)}
+  ${incluirPlano ? tabelaPlano(d) : blocoConvite(d)}
 
   ${detalhado ? `<div class="detalhado quebrar-antes">${detalhado}</div>` : ''}
 
@@ -442,13 +495,33 @@ export function montarEmailCurto(d: DiagnosticoRegistro): { assunto: string; htm
     <ul style="margin:0 0 16px;padding-left:20px;color:${GRAFITE};font-size:14.5px;line-height:1.75;">
       <li>a pontuação detalhada em quatro pilares, com a explicação de cada nota;</li>
       <li>os indicadores calculados a partir dos seus números, com a fórmula de cada um;</li>
-      <li>os gargalos encontrados e um plano de ação priorizado.</li>
+      <li>os gargalos encontrados, com o número que comprova cada um.</li>
     </ul>
 
     <p style="margin:0 0 14px;color:${GRAFITE};font-size:15px;line-height:1.7;">
-      Vale reservar quinze minutos com calma. Se quiser conversar sobre qualquer ponto,
-      é só responder a este e-mail.
+      Vale reservar quinze minutos com calma.
     </p>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+           style="background:${FUNDO};border:1px solid ${BORDA};border-radius:12px;margin:4px 0 18px;">
+      <tr><td style="padding:18px 20px;">
+        <div style="font-size:15px;font-weight:800;color:${MARINHO};">E o plano de ação?</div>
+        <p style="margin:8px 0 0;color:${GRAFITE};font-size:14px;line-height:1.7;">
+          Existe um plano para cada gargalo do relatório. Ele não vem aqui porque a ordem de execução
+          depende do seu contexto — e atacar na sequência errada custa dinheiro.
+          São trinta minutos para definirmos por onde começar, sem custo e sem compromisso.
+        </p>
+        <p style="margin:14px 0 0;">
+          <a href="https://wa.me/${WHATSAPP}?text=${encodeURIComponent(
+            `Olá! Recebi meu Diagnóstico ${tipo === 'comercial' ? 'Comercial' : 'Financeiro'} (protocolo ${d.protocolo}) e quero agendar os 30 minutos.`,
+          )}"
+             style="display:inline-block;background:#059669;color:#FFFFFF;font-size:14px;font-weight:800;
+                    padding:13px 26px;border-radius:8px;text-decoration:none;">
+            Falar com um consultor
+          </a>
+        </p>
+      </td></tr>
+    </table>
   </td></tr>
 
   <tr><td style="background:${FUNDO};border-top:1px solid ${BORDA};padding:18px 30px;
@@ -469,7 +542,7 @@ export function montarEmailCurto(d: DiagnosticoRegistro): { assunto: string; htm
 // Data primeiro para a pasta do Drive ordenar cronologicamente sozinha,
 // e o score no fim para bater o olho na lista e ver onde há urgência.
 // ---------------------------------------------------------------------
-export function nomeArquivoPdf(d: DiagnosticoRegistro): string {
+export function nomeArquivoPdf(d: DiagnosticoRegistro, interno = false): string {
   const dia = new Date(d.created_at ?? Date.now())
     .toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
     .split('/')
@@ -489,5 +562,6 @@ export function nomeArquivoPdf(d: DiagnosticoRegistro): string {
       .slice(0, 48) || 'Empresa';
 
   const tipo = d.tipo === 'comercial' ? 'Comercial' : 'Financeiro';
-  return `${dia} - ${empresa} - ${tipo} - ${d.score_total ?? 0}.pdf`;
+  const sufixo = interno ? ' - INTERNO' : '';
+  return `${dia} - ${empresa} - ${tipo} - ${d.score_total ?? 0}${sufixo}.pdf`;
 }

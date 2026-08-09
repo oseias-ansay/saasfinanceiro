@@ -156,7 +156,13 @@ diagnosticosRouter.get('/:protocolo/pdf', async (req, res, next) => {
     const arquivo = nomeArquivoPdf(registro as DiagnosticoRegistro);
     let pdf: Buffer | null = null;
 
-    if (registro.pdf_path) {
+    // O sufixo `-v2` invalida o cache de PDFs gerados antes de 09/08/2026,
+    // quando o relatório do cliente ainda trazia o plano de ação. Um registro
+    // apontando para o caminho antigo é simplesmente renderizado de novo —
+    // sem migração de banco e sem limpeza manual do Storage.
+    const caminhoEsperado = `${registro.protocolo}-v2.pdf`;
+
+    if (registro.pdf_path === caminhoEsperado) {
       const { data: baixado, error: erroDownload } = await supabaseAdmin.storage
         .from(BUCKET)
         .download(registro.pdf_path);
@@ -176,7 +182,7 @@ diagnosticosRouter.get('/:protocolo/pdf', async (req, res, next) => {
     if (!pdf) {
       pdf = await htmlParaPdf(montarHtmlImpressao(registro as DiagnosticoRegistro));
 
-      const caminho = `${registro.protocolo}.pdf`;
+      const caminho = caminhoEsperado;
       const { error: erroUpload } = await supabaseAdmin.storage
         .from(BUCKET)
         .upload(caminho, pdf, { contentType: 'application/pdf', upsert: true });
@@ -189,6 +195,42 @@ diagnosticosRouter.get('/:protocolo/pdf', async (req, res, next) => {
         await db.from('diagnosticos').update({ pdf_path: caminho }).eq('protocolo', registro.protocolo);
       }
     }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${arquivo}"`);
+    res.setHeader('Content-Length', String(pdf.length));
+    res.send(pdf);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * Devolve a cópia interna: mesmo relatório, com o plano de ação completo.
+ *
+ * É esta versão que o n8n arquiva no Drive, para você chegar na reunião com
+ * a sequência de execução já escrita. Não é guardada no Storage de propósito
+ * — o cache existe para garantir que o cliente receba exatamente o arquivo
+ * revisado, e um segundo arquivo no mesmo bucket só criaria a chance de
+ * enviar o errado. Renderizar de novo custa dois segundos.
+ */
+diagnosticosRouter.get('/:protocolo/pdf-interno', async (req, res, next) => {
+  try {
+    const { data: registro, error } = await db
+      .from('diagnosticos')
+      .select('*')
+      .eq('protocolo', req.params.protocolo)
+      .maybeSingle();
+
+    if (error) throw fromPostgrest(error);
+    if (!registro) return next(notFound('Protocolo não encontrado'));
+
+    const arquivo = nomeArquivoPdf(registro as DiagnosticoRegistro, true);
+    const pdf = await htmlParaPdf(
+      montarHtmlImpressao(registro as DiagnosticoRegistro, { incluirPlano: true }),
+    );
+
+    logger.info({ protocolo: registro.protocolo }, 'PDF interno gerado');
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${arquivo}"`);
