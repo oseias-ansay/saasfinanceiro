@@ -96,7 +96,7 @@ diagnosticosRouter.post('/', async (req, res, next) => {
     const { data, error } = await db
       .from('diagnosticos')
       .insert({ ...input, assunto_cliente: email.assunto, html_cliente: email.html })
-      .select('id, protocolo, liberar_em, hold_token')
+      .select('id, protocolo, liberar_em, hold_token, assunto_cliente, html_cliente')
       .single();
 
     if (error) throw fromPostgrest(error);
@@ -111,6 +111,12 @@ diagnosticosRouter.post('/', async (req, res, next) => {
       protocolo: data.protocolo,
       liberar_em: data.liberar_em,
       hold_url: `${env.API_PUBLIC_URL}/diagnosticos/segurar/${data.hold_token}`,
+
+      // Devolvidos para quem envia na hora, sem esperar a janela das 8h —
+      // hoje o diagnóstico comercial. Assim a capa do e-mail continua sendo
+      // montada aqui, num lugar só, e não duplicada dentro do n8n.
+      assunto_cliente: data.assunto_cliente,
+      html_cliente: data.html_cliente,
     });
   } catch (e) {
     next(e);
