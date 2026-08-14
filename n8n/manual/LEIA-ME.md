@@ -118,6 +118,39 @@ para receber de `Montar Avisos`, e não mais de `Consolidar Diagnóstico`.
 
 ---
 
+## Autenticação dos nós que chamam a API
+
+**Não use credencial Header Auth nestes nós.** Use `Authentication: None` +
+`Send Headers` → `Using Fields Below`, com `x-n8n-secret` no Name e o valor
+de `N8N_WEBHOOK_SECRET` no Value.
+
+A razão é operacional, não técnica. O campo de credencial mascara o valor,
+então quando algo não bate não há como ver o que está lá — só tentar de novo.
+Com o cabeçalho no próprio nó, o valor aparece no JSON exportado do workflow
+e o erro se resolve olhando.
+
+Foi o que custou uma tarde inteira: uma credencial `Header Auth account`
+servia ao mesmo tempo os oito nós da API (cabeçalho `x-n8n-secret`) e o nó de
+envio da Evolution (cabeçalho `apikey`). No n8n as credenciais são globais.
+Ao ajustar o cabeçalho para o WhatsApp funcionar, os dois fluxos de
+diagnóstico quebraram em silêncio — e só apareceu dias depois, num
+diagnóstico real.
+
+Duas lições que valem além deste caso:
+
+- Antes de editar uma credencial, procure quem mais a usa. Uma credencial
+  compartilhada entre serviços diferentes é uma bomba-relógio.
+- Segredo mascarado impede diagnóstico. Quando o valor é interno e o
+  ambiente é de uso próprio, campo visível compensa.
+
+Para recuperar o segredo:
+
+```bash
+docker exec finance-api printenv N8N_WEBHOOK_SECRET
+```
+
+---
+
 ## Conferência antes de ativar
 
 - [ ] O nó `Gmail — Relatório ao Cliente` foi apagado deste fluxo

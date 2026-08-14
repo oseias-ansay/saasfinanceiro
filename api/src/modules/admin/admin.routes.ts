@@ -12,7 +12,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
 import { validate } from '../../middlewares/validate.js';
 import { supabaseAdmin } from '../../lib/supabase.js';
-import { badRequest, forbidden, fromPostgrest } from '../../lib/errors.js';
+import { badRequest, forbidden, fromPostgrest, notFound } from '../../lib/errors.js';
 
 export const adminRouter = Router();
 
@@ -209,6 +209,230 @@ adminRouter.post('/acesso', validate(acessoSchema), async (req, res, next) => {
     if (error) throw fromPostgrest(error);
 
     res.status(201).json({ data: { tenant_id, role, ja_tinha_acesso: false } });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// =====================================================================
+// ARQUIVAR E EXCLUIR EMPRESAS
+// =====================================================================
+// Duas operações com pesos muito diferentes, e a interface precisa
+// refletir isso. Arquivar é reversível e não pede confirmação especial.
+// Excluir apaga o financeiro inteiro por cascata e exige que o operador
+// digite o nome da empresa — não por burocracia, mas porque digitar o
+// nome obriga a olhar QUAL empresa está selecionada, que é justamente o
+// erro que a confirmação precisa impedir.
+
+/**
+ * Extrai o `:id` da rota já como string garantida.
+ *
+ * O `noUncheckedIndexedAccess` do tsconfig faz `req.params.id` chegar como
+ * `string | undefined`, e ele tem razão: nada no tipo de Express prova que
+ * a rota casada tem esse parâmetro. Uma função que valida em um lugar só
+ * evita espalhar `!` — que silencia o compilador sem verificar nada.
+ */
+function idDaRota(req: Request): string {
+  const id = req.params.id;
+  if (!id) throw notFound('Empresa não encontrada');
+  return id;
+}
+
+/** Inventário do que existe na empresa. Alimenta a tela de confirmação. */
+adminRouter.get('/tenants/:id/inventario', async (req, res, next) => {
+  try {
+    const tenantId = idDaRota(req);
+
+    const { data, error } = await supabaseAdmin.rpc('fn_inventario_empresa', {
+      p_tenant_id: tenantId,
+    });
+    if (error) throw fromPostgrest(error);
+    if (!data) throw notFound('Empresa não encontrada');
+
+    const { data: orfaos, error: errO } = await supabaseAdmin.rpc(
+      'fn_usuarios_orfaos_apos_exclusao',
+      { p_tenant_id: tenantId },
+    );
+    if (errO) throw fromPostgrest(errO);
+
+    // O front não precisa da lista de caminhos do Storage — é detalhe de
+    // implementação da exclusão, e mandar centenas de strings à toa só
+    // engorda a resposta.
+    const { caminhos_anexos: _ignorado, ...resumo } = data as Record<string, unknown>;
+
+    res.json({ data: { ...resumo, usuarios_que_perdem_acesso: orfaos ?? [] } });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const arquivarSchema = z.object({
+  arquivada: z.boolean(),
+});
+
+/**
+ * Arquiva ou reativa uma empresa.
+ *
+ * O bloqueio de verdade acontece no banco: as funções `is_tenant_member`,
+ * `is_tenant_admin` e `can_write_tenant` exigem `tenants.is_active`. Ou
+ * seja, arquivar não esconde a empresa da tela — impede o acesso aos
+ * dados, inclusive por chamada direta à API.
+ */
+adminRouter.patch('/tenants/:id/arquivar', validate(arquivarSchema), async (req, res, next) => {
+  try {
+    const tenantId = idDaRota(req);
+    const { arquivada } = req.body as z.infer<typeof arquivarSchema>;
+
+    const { data, error } = await supabaseAdmin
+      .from('tenants')
+      .update({ is_active: !arquivada })
+      .eq('id', tenantId)
+      .select('id, name, is_active')
+      .maybeSingle();
+
+    if (error) throw fromPostgrest(error);
+    if (!data) throw notFound('Empresa não encontrada');
+
+    res.json({ data: { ...data, arquivada: !data.is_active } });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const exclusaoSchema = z.object({
+  /** Precisa bater exatamente com o nome cadastrado. */
+  confirmacao: z.string().trim().min(1),
+  motivo: z.string().trim().max(500).optional(),
+});
+
+/**
+ * Exclui a empresa em definitivo.
+ *
+ * A ordem das etapas não é arbitrária:
+ *
+ *  1. Inventário ANTES de qualquer remoção — depois do delete não há de
+ *     onde tirar os números, e os caminhos do Storage se perdem.
+ *  2. Registro em `exclusoes_empresas`, que vive fora do modelo
+ *     multi-tenant e por isso sobrevive à cascata.
+ *  3. Arquivos do Storage. Vêm antes do delete no banco porque é a etapa
+ *     que pode falhar por rede: falhando aqui, nada foi apagado ainda e
+ *     dá para tentar de novo. Se fosse depois, uma falha deixaria os
+ *     arquivos órfãos sem nenhum registro apontando para eles.
+ *  4. O delete da empresa, que leva tudo por cascata.
+ *  5. As contas do GoTrue que ficaram sem nenhuma empresa.
+ */
+adminRouter.delete('/tenants/:id', validate(exclusaoSchema), async (req, res, next) => {
+  try {
+    const { confirmacao, motivo } = req.body as z.infer<typeof exclusaoSchema>;
+    const tenantId = idDaRota(req);
+
+    // 1. Inventário
+    const { data: inv, error: errI } = await supabaseAdmin.rpc('fn_inventario_empresa', {
+      p_tenant_id: tenantId,
+    });
+    if (errI) throw fromPostgrest(errI);
+    if (!inv) throw notFound('Empresa não encontrada');
+
+    const inventario = inv as {
+      nome: string;
+      tax_id: string | null;
+      criada_em: string | null;
+      qtd_lancamentos: number;
+      qtd_usuarios: number;
+      qtd_anexos: number;
+      caminhos_anexos: string[];
+    };
+
+    if (confirmacao !== inventario.nome) {
+      throw badRequest(
+        'A confirmação não confere com o nome da empresa. Nada foi excluído.',
+      );
+    }
+
+    const { data: orfaos } = await supabaseAdmin.rpc('fn_usuarios_orfaos_apos_exclusao', {
+      p_tenant_id: tenantId,
+    });
+
+    // 2. Trilha da exclusão
+    const { error: errReg } = await supabaseAdmin.from('exclusoes_empresas').insert({
+      tenant_id: tenantId,
+      nome: inventario.nome,
+      tax_id: inventario.tax_id,
+      criada_em: inventario.criada_em,
+      excluida_por: req.user!.id,
+      excluida_por_email: req.user!.email ?? null,
+      motivo: motivo ?? null,
+      qtd_lancamentos: inventario.qtd_lancamentos,
+      qtd_usuarios: inventario.qtd_usuarios,
+      qtd_anexos: inventario.qtd_anexos,
+    });
+    if (errReg) throw fromPostgrest(errReg);
+
+    // 3. Comprovantes no Storage
+    //
+    // O Storage é outro sistema: o `delete` em cascata limpa as linhas de
+    // `attachments`, mas os arquivos ficariam ocupando disco para sempre.
+    const caminhos = Array.isArray(inventario.caminhos_anexos)
+      ? inventario.caminhos_anexos
+      : [];
+    let arquivosRemovidos = 0;
+    if (caminhos.length) {
+      // Em lotes: a API do Storage tem limite por chamada, e uma empresa
+      // com anos de comprovantes pode passar de mil arquivos.
+      for (let i = 0; i < caminhos.length; i += 100) {
+        const lote = caminhos.slice(i, i + 100);
+        const { error } = await supabaseAdmin.storage.from('comprovantes').remove(lote);
+        if (error) {
+          throw badRequest(
+            `Falha ao remover os comprovantes do armazenamento (${error.message}). ` +
+              'Nenhum dado foi excluído — tente novamente.',
+          );
+        }
+        arquivosRemovidos += lote.length;
+      }
+    }
+
+    // 4. A empresa. A cascata cuida do resto.
+    const { error: errDel } = await supabaseAdmin.from('tenants').delete().eq('id', tenantId);
+    if (errDel) throw fromPostgrest(errDel);
+
+    // 5. Contas que ficaram sem empresa nenhuma.
+    //
+    // Falha aqui não desfaz nada nem interrompe: a empresa já foi. O que
+    // sobra é uma conta órfã, que atrapalha mas não quebra — e o resultado
+    // volta na resposta para você saber que precisa limpar à mão.
+    const removidos: string[] = [];
+    const falhas: string[] = [];
+    for (const u of (orfaos ?? []) as Array<{ user_id: string; email: string | null }>) {
+      const { error } = await supabaseAdmin.auth.admin.deleteUser(u.user_id);
+      if (error) falhas.push(u.email ?? u.user_id);
+      else removidos.push(u.email ?? u.user_id);
+    }
+
+    res.json({
+      data: {
+        excluida: inventario.nome,
+        lancamentos_apagados: inventario.qtd_lancamentos,
+        arquivos_removidos: arquivosRemovidos,
+        usuarios_removidos: removidos,
+        usuarios_com_falha: falhas,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Histórico das exclusões — a prova de que os dados foram apagados. */
+adminRouter.get('/exclusoes', async (req, res, next) => {
+  try {
+    const { data, error } = await req.supabase
+      .from('exclusoes_empresas')
+      .select('*')
+      .order('excluida_em', { ascending: false })
+      .limit(200);
+    if (error) throw fromPostgrest(error);
+    res.json({ data: data ?? [] });
   } catch (e) {
     next(e);
   }

@@ -1,0 +1,181 @@
+{
+  "name": "WhatsApp — Resposta por Origem",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-inbound",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "f1000000-0000-4000-8000-000000000001",
+      "name": "Evolution — Mensagem Recebida",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -780,
+        300
+      ],
+      "webhookId": "wa1nb0und-0001-4000-8000-000000000001"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Normaliza o evento da Evolution e decide se responde.\n//\n// O formato veio dos logs reais da instância, não de documentação:\n// { event, instance, data: { key: { remoteJid, remoteJidAlt, fromMe, id },\n//   message, messageType, pushName }, sender, date_time }\n// ============================================================\n\nconst e = $input.first().json;\nconst body = e.body || e;\nconst d = body.data || {};\nconst key = d.key || {};\n\n// O texto pode vir em vários lugares conforme o tipo da mensagem.\n// Só tratamos texto: áudio, imagem e documento vão para atendimento humano.\nconst m = d.message || {};\nconst texto = (\n  m.conversation ||\n  (m.extendedTextMessage && m.extendedTextMessage.text) ||\n  (m.ephemeralMessage && m.ephemeralMessage.message && m.ephemeralMessage.message.conversation) ||\n  ''\n).trim();\n\nconst fromMe = key.fromMe === true;\n\n// De onde tirar o telefone para responder.\n//\n// O WhatsApp passou a enviar um LID no lugar do número: \"152003288269035@lid\".\n// É um identificador que esconde o telefone, e a Evolution não consegue mandar\n// mensagem para ele — a requisição é aceita e a mensagem simplesmente não chega.\n// Quando o LID aparece, o telefone real vem em remoteJidAlt.\n//\n// Este foi o defeito do primeiro teste: o fluxo repassava o remoteJid cru, o\n// envio era aceito e nada chegava no celular. Falha silenciosa é a pior espécie,\n// por isso agora existe o campo `temTelefone` e um motivo próprio para ela.\nconst jid = String(key.remoteJidAlt || key.remoteJid || '');\nconst numero = jid.split('@')[0];\n\nconst ehGrupo = jid.endsWith('@g.us') || String(key.remoteJid || '').endsWith('@g.us');\nconst temTelefone = jid.endsWith('@s.whatsapp.net') && /^\\d{10,15}$/.test(numero);\n\n// Saudação conforme a hora de Brasília.\n//\n// O horário sai do próprio evento, não do relógio do servidor: se a execução\n// atrasar numa fila, a saudação continua coerente com o momento em que a\n// pessoa escreveu. O fuso é fixado em America/Sao_Paulo porque o contêiner\n// roda em UTC — sem isso, toda mensagem da noite viraria \"bom dia\".\nconst quando = new Date(body.date_time || Date.now());\nconst instante = isNaN(quando.getTime()) ? new Date() : quando;\nconst hora = Number(\n  new Intl.DateTimeFormat('pt-BR', {\n    timeZone: 'America/Sao_Paulo',\n    hour: 'numeric',\n    hour12: false\n  }).format(instante)\n);\nconst saudacao = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';\n\n// O código de origem que os botões do site colocam: \"(ref: agendamento)\".\nconst achado = texto.match(/\\(\\s*ref\\s*:\\s*([a-z]+)\\s*\\)/i);\nconst ref = achado ? achado[1].toLowerCase() : null;\n\nconst RESPOSTAS = {\n  agendamento:\n    `${saudacao}! Que bom que você quer fazer o diagnóstico da sua empresa.\\n\\n` +\n    'O relatório chega no dia seguinte pela manhã, em PDF, sem custo.\\n\\n' +\n    'Para eu já preparar: qual o nome da sua empresa, e qual o melhor período para conversarmos — manhã ou tarde?',\n\n  credito:\n    `${saudacao}! Trabalho com crédito empresarial pela Franq desde 2021 — capital de giro, financiamento de equipamento e antecipação de recebíveis.\\n\\n` +\n    'Antes de indicar qualquer operação, prefiro entender o que está acontecendo no caixa. Às vezes crédito resolve; às vezes adia um problema que fica maior.\\n\\n' +\n    'Me conta em duas linhas: para que você precisa do recurso?',\n\n  mercado:\n    `${saudacao}! Sobre inteligência de mercado, trabalhamos com relatório de onde estão seus clientes, análise de concorrentes, sites e páginas de anúncio, e treinamento de campanhas.\\n\\n` +\n    'Para eu responder com algo útil em vez de catálogo: qual é o seu segmento, e o que está tentando resolver — atrair mais gente ou converter melhor quem já chega?',\n\n  geral:\n    `${saudacao}! Obrigado pelo contato.\\n\\n` +\n    'Me conta rapidamente o que você precisa, que eu já te direciono. Diagnóstico, crédito e marketing têm caminhos diferentes, e não quero te fazer perder tempo.'\n};\n\n// Silêncio quando não há código de origem.\n//\n// Os botões do site sempre carregam o \"(ref: ...)\". Mensagem sem código vem\n// de quem já tem o número salvo — cliente atual, indicação, conhecido. Essas\n// pessoas receberem resposta de robô é pior do que não receberem nada,\n// porque quebra uma relação que já existe. O evento fica registrado na\n// execução para você ver e responder à mão.\n//\n// É também o que faz a segunda mensagem da conversa ficar sem resposta\n// automática: a saudação é única, e dali em diante quem atende é o consultor.\nconst responder = !fromMe && !ehGrupo && temTelefone && !!ref && !!RESPOSTAS[ref];\n\nreturn [{\n  json: {\n    responder,\n    motivo: fromMe ? 'mensagem própria'\n          : ehGrupo ? 'mensagem de grupo'\n          : !texto ? 'sem texto (áudio, imagem ou documento)'\n          : !ref ? 'sem código de origem — atendimento humano'\n          : !temTelefone ? 'só LID, sem telefone para responder'\n          : 'ok',\n    instancia: body.instance || 'wa_ultimo',\n    numero,\n    jid,\n    contato: d.pushName || null,\n    origem: ref,\n    saudacao,\n    texto_recebido: texto.slice(0, 500),\n    recebido_em: body.date_time || new Date().toISOString(),\n    resposta: responder ? RESPOSTAS[ref] : null\n  }\n}];\n"
+      },
+      "id": "f1000000-0000-4000-8000-000000000002",
+      "name": "Ler Mensagem e Escolher Resposta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-responder",
+              "leftValue": "={{ $json.responder }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f1000000-0000-4000-8000-000000000003",
+      "name": "Responder?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://evolution:8080/message/sendText/{{ $json.instancia }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $json.numero, text: $json.resposta, delay: 1200 }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "f1000000-0000-4000-8000-000000000004",
+      "name": "Evolution — Enviar Resposta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -40,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SUBSTITUA_PELO_ID_DA_CREDENCIAL",
+          "name": "Evolution API - apikey"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ponto de silêncio.\n//\n// Não faz nada de propósito. Existe para a execução ficar registrada com o\n// motivo — assim você abre a lista e vê quem escreveu sem código de origem,\n// e responde à mão. Sem este nó, a execução terminaria sem deixar rastro do\n// que foi ignorado e por quê.\nreturn $input.all();"
+      },
+      "id": "f1000000-0000-4000-8000-000000000005",
+      "name": "Silêncio — Atendimento Humano",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -40,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## WhatsApp — Resposta por Origem\n\nCada botão do site abre a conversa com um código no fim da mensagem: `(ref: agendamento)`, `(ref: credito)`, `(ref: mercado)`, `(ref: geral)`. Este fluxo lê o código e responde de acordo.\n\n**Por que código e não palavra-chave:** classificar a primeira mensagem por assunto quebra assim que a pessoa edita o texto antes de enviar — e ela edita. O parêntese ninguém apaga.\n\n**Sem código = silêncio.** Quem escreve sem o código já tem seu número salvo: cliente, indicação, conhecido. Resposta automática nesses casos quebra relação. A execução fica registrada com o motivo, para você responder à mão.\n\n**Antes de ativar:**\n1. Crie a credencial **Header Auth** chamada `Evolution API - apikey`:\n   - Name: `apikey`\n   - Value: o `AUTHENTICATION_API_KEY` do `/opt/evolution/.env`\n2. Confirme que o n8n está na rede da Evolution (`docker network connect evolution_evolution-net n8n-businestriage-n8n-1`).\n3. Ative o workflow.\n4. **Só então** aponte o webhook da Evolution para cá.\n\n**Um cuidado com banimento:** o envio tem `delay: 1200`, que faz a Evolution simular digitação por pouco mais de um segundo. Resposta instantânea é assinatura de robô — e volume baixo com padrão temporal humano é o que mantém o número vivo.",
+        "height": 520,
+        "width": 420,
+        "color": 4
+      },
+      "id": "f1000000-0000-4000-8000-000000000006",
+      "name": "Leia-me",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1260,
+        160
+      ]
+    }
+  ],
+  "connections": {
+    "Evolution — Mensagem Recebida": {
+      "main": [
+        [
+          {
+            "node": "Ler Mensagem e Escolher Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler Mensagem e Escolher Resposta": {
+      "main": [
+        [
+          {
+            "node": "Responder?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder?": {
+      "main": [
+        [
+          {
+            "node": "Evolution — Enviar Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Silêncio — Atendimento Humano",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "0865a481a3af16acb20b5d0deff799f572f885e6dc3c5be8f983425c9f63396e"
+  }
+}

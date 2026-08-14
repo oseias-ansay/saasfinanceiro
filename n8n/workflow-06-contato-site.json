@@ -1,0 +1,145 @@
+{
+  "name": "Contato do Site",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "contato-site",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "https://businesstriage.com.br,http://localhost:5173"
+        }
+      },
+      "id": "e1000000-0000-4000-8000-000000000001",
+      "name": "Webhook do Formulário",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-720, 320],
+      "webhookId": "c0nt4t0-site-0001-4000-8000-000000000001"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Monta o e-mail do contato recebido pelo site.\n//\n// Valida antes de enviar: formulário público sem validação vira porta\n// de spam, e cada mensagem falsa custa a sua atenção — que é o recurso\n// mais escasso enquanto a operação é pequena.\n// ============================================================\n\nconst raw = $input.first().json;\nconst b = raw.body || raw;\n\nconst limpo = (v, max) => String(v ?? '').trim().slice(0, max);\nconst esc = t => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\nconst nome = limpo(b.nome, 120);\nconst email = limpo(b.email, 160);\nconst telefone = limpo(b.telefone, 40);\nconst empresa = limpo(b.empresa, 160);\nconst mensagem = limpo(b.mensagem, 4000);\n\n// Rejeita o óbvio. Não é antispam de verdade — é o filtro que evita as\n// tentativas automáticas mais grosseiras sem atrapalhar ninguém real.\nconst emailValido = /^[^@\\s]+@[^@\\s]+\\.[^@\\s]{2,}$/.test(email);\nif (!nome || !emailValido || !mensagem) {\n  return [{ json: { valido: false, motivo: 'campos obrigatórios ausentes ou e-mail inválido' } }];\n}\n\nconst quando = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });\n\nconst html = `<!DOCTYPE html><html lang='pt-BR'><head><meta charset='utf-8'></head>\n<body style='margin:0;padding:20px;background:#F1F5F9;font-family:Inter,Arial,Helvetica,sans-serif;'>\n<table role='presentation' width='560' cellpadding='0' cellspacing='0' style='max-width:560px;background:#FFFFFF;border-radius:12px;overflow:hidden;'>\n  <tr><td style='background:#0B1E3B;padding:18px 22px;color:#FFFFFF;font-size:15px;font-weight:800;'>Contato pelo site</td></tr>\n  <tr><td style='padding:18px 22px;'>\n    <div style='font-size:17px;font-weight:800;color:#0B1E3B;'>${esc(nome)}</div>\n    <div style='font-size:12.5px;color:#64748B;margin:2px 0 16px;'>${esc(empresa || 'empresa não informada')} &middot; ${esc(quando)}</div>\n\n    <table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='font-size:13px;border-collapse:collapse;'>\n      <tr><td style='padding:6px 0;color:#64748B;width:90px;'>E-mail</td><td style='padding:6px 0;color:#0B1E3B;font-weight:600;'><a href='mailto:${esc(email)}' style='color:#059669;'>${esc(email)}</a></td></tr>\n      <tr><td style='padding:6px 0;color:#64748B;'>Telefone</td><td style='padding:6px 0;color:#0B1E3B;font-weight:600;'>${esc(telefone || '—')}</td></tr>\n    </table>\n\n    <div style='margin-top:18px;padding:14px 16px;background:#F8FAFC;border-left:3px solid #0B1E3B;border-radius:6px;color:#334155;font-size:14px;line-height:1.7;white-space:pre-wrap;'>${esc(mensagem)}</div>\n\n    <div style='margin-top:18px;'>\n      <a href='mailto:${esc(email)}' style='display:inline-block;background:#0B1E3B;color:#FFFFFF;font-size:13px;font-weight:800;padding:11px 22px;border-radius:8px;text-decoration:none;'>Responder</a>\n    </div>\n  </td></tr>\n</table></body></html>`;\n\nreturn [{\n  json: {\n    valido: true,\n    email_contato: email,\n    assunto: `[Site] ${nome}${empresa ? ' — ' + empresa : ''}`,\n    html\n  }\n}];"
+      },
+      "id": "e1000000-0000-4000-8000-000000000002",
+      "name": "Validar e Montar E-mail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-480, 320]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-valido",
+              "leftValue": "={{ $json.valido }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e1000000-0000-4000-8000-000000000003",
+      "name": "Válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-256, 320]
+    },
+    {
+      "parameters": {
+        "sendTo": "contato@businesstriage.com.br",
+        "subject": "={{ $json.assunto }}",
+        "message": "={{ $json.html }}",
+        "options": {
+          "replyTo": "={{ $json.email_contato }}"
+        }
+      },
+      "id": "e1000000-0000-4000-8000-000000000004",
+      "name": "Gmail — Avisar Contato",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [0, 208],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "SUBSTITUA_PELO_ID_DA_CREDENCIAL",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true }) }}",
+        "options": {}
+      },
+      "id": "e1000000-0000-4000-8000-000000000005",
+      "name": "Responder Sucesso",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [256, 208]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 422,
+        "responseBody": "={{ JSON.stringify({ ok: false, erro: $json.motivo }) }}",
+        "options": {}
+      },
+      "id": "e1000000-0000-4000-8000-000000000006",
+      "name": "Responder Erro",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [0, 432]
+    },
+    {
+      "parameters": {
+        "content": "## Contato do Site\n\nRecebe o formulário da home e avisa por e-mail.\n\n**Antes de ativar:**\n1. Credencial do Gmail no nó de envio.\n2. Confirme o CORS no nó Webhook.\n3. Ative o workflow — o path de produção só responde ativado.\n4. Só então descomente `VITE_N8N_WEBHOOK_CONTATO` no `.env.production` do site e gere um novo build.\n\n**A ordem do passo 4 importa.** Com a variável definida e o workflow inativo, o formulário tenta enviar e falha — mostrando erro para o visitante. Sem a variável, ele desabilita o botão e oferece WhatsApp e e-mail, que é o comportamento correto enquanto o canal não existe.\n\n**Para onde vai:** `contato@businesstriage.com.br`, que é caixa da Hostinger — não o Gmail pessoal. Confira no webmail da Hostinger, não na sua caixa de sempre.\n\n**Reply-To** vem preenchido com o e-mail de quem escreveu: responder no Gmail cai direto na caixa da pessoa, sem copiar e colar endereço.\n\n**O nó do Gmail falha alto de propósito.** Se o envio não der certo, o webhook devolve erro e o site mostra a mensagem com saída (WhatsApp e e-mail). Perder o contato avisando é ruim; perder em silêncio é pior — e era esse o defeito que estávamos consertando no formulário.\n\n**Validação** acontece antes do envio. Mensagem sem nome, sem texto ou com e-mail malformado recebe 422 e não gera notificação — formulário público sem filtro vira porta de spam, e cada mensagem falsa custa a sua atenção.",
+        "height": 460,
+        "width": 420,
+        "color": 4
+      },
+      "id": "e1000000-0000-4000-8000-000000000007",
+      "name": "Leia-me",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-1180, 176]
+    }
+  ],
+  "connections": {
+    "Webhook do Formulário": {
+      "main": [[{ "node": "Validar e Montar E-mail", "type": "main", "index": 0 }]]
+    },
+    "Validar e Montar E-mail": {
+      "main": [[{ "node": "Válido?", "type": "main", "index": 0 }]]
+    },
+    "Válido?": {
+      "main": [
+        [{ "node": "Gmail — Avisar Contato", "type": "main", "index": 0 }],
+        [{ "node": "Responder Erro", "type": "main", "index": 0 }]
+      ]
+    },
+    "Gmail — Avisar Contato": {
+      "main": [[{ "node": "Responder Sucesso", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "0865a481a3af16acb20b5d0deff799f572f885e6dc3c5be8f983425c9f63396e"
+  }
+}

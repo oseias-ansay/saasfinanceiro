@@ -76,6 +76,51 @@ export type Database = {
           },
         ]
       }
+      exclusoes_empresas: {
+        Row: {
+          criada_em: string | null
+          excluida_em: string
+          excluida_por: string | null
+          excluida_por_email: string | null
+          id: number
+          motivo: string | null
+          nome: string
+          qtd_anexos: number
+          qtd_lancamentos: number
+          qtd_usuarios: number
+          tax_id: string | null
+          tenant_id: string
+        }
+        Insert: {
+          criada_em?: string | null
+          excluida_em?: string
+          excluida_por?: string | null
+          excluida_por_email?: string | null
+          id?: number
+          motivo?: string | null
+          nome: string
+          qtd_anexos?: number
+          qtd_lancamentos?: number
+          qtd_usuarios?: number
+          tax_id?: string | null
+          tenant_id: string
+        }
+        Update: {
+          criada_em?: string | null
+          excluida_em?: string
+          excluida_por?: string | null
+          excluida_por_email?: string | null
+          id?: number
+          motivo?: string | null
+          nome?: string
+          qtd_anexos?: number
+          qtd_lancamentos?: number
+          qtd_usuarios?: number
+          tax_id?: string | null
+          tenant_id?: string
+        }
+        Relationships: []
+      }
       audit_log: {
         Row: {
           action: string
@@ -1205,6 +1250,14 @@ export type Database = {
         }
       }
       fn_daily_digest: { Args: { p_tenant_id: string }; Returns: Json }
+      fn_inventario_empresa: { Args: { p_tenant_id: string }; Returns: Json }
+      fn_usuarios_orfaos_apos_exclusao: {
+        Args: { p_tenant_id: string }
+        Returns: {
+          email: string | null
+          user_id: string
+        }[]
+      }
       fn_digest_all: {
         Args: never
         Returns: {
