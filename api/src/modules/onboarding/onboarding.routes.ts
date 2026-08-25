@@ -156,6 +156,8 @@ onboardingRouter.post(
             email,
             password: senha,
             email_confirm: true, // sem SMTP não há como o usuário confirmar sozinho
+            // Provisória: o front obriga a troca antes de liberar o painel.
+            user_metadata: { senha_provisoria: true },
           });
           if (error) throw badRequest(`Não foi possível criar o acesso: ${error.message}`);
           userId = data.user.id;

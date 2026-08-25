@@ -103,6 +103,11 @@ adminRouter.post('/tenants', validate(novaEmpresaSchema), async (req, res, next)
         email: body.owner_email,
         password: senha,
         email_confirm: true,
+        // Marca a senha como provisória. O front barra a navegação enquanto
+        // ela existir e leva o usuário para criar a própria — a senha gerada
+        // aqui circula por e-mail ou WhatsApp e não deve sobreviver ao
+        // primeiro acesso.
+        user_metadata: { senha_provisoria: true },
       });
       if (error) throw badRequest(`Não foi possível criar o acesso: ${error.message}`);
       ownerId = data.user.id;
