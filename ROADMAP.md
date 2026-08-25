@@ -8,11 +8,30 @@ As perguntas que continuam em aberto estão marcadas como tal.
 
 | Versão | Escopo | Situação |
 |---|---|---|
-| **1.0.0** | Base: controle financeiro, DRE, extrato, diagnósticos comercial e financeiro, painel de staff, WhatsApp por origem, arquivar e excluir empresas | **No ar — em beta** |
-| **1.1.0** | Acompanhamento do PDCA dentro do sistema | Planejada |
+| **1.0.0** | Base: controle financeiro, DRE, extrato, diagnósticos comercial e financeiro, painel de staff, WhatsApp por origem, arquivar e excluir empresas | **No ar** |
+| **1.0.1** | Correções do beta: extrato linha a linha, exclusão de lançamento visível, troca de senha no primeiro acesso, diagnóstico restrito ao consultor | **No ar** |
+| **1.0.2** | Marco zero, versão da régua e painel de validação comercial | **No ar** |
+| **1.1.0** | Acompanhamento do PDCA — quadro do cliente, consolidado do consultor e montagem do plano | **No ar** |
 | **1.2.0** | Diagnóstico periódico a partir dos lançamentos, com a fronteira gratuito × assinante | Planejada |
-| **1.3.0** | Camada de consultoria — três níveis, para a microfranquia | Planejada · janela durante a validação |
+| **1.3.0** | Camada de consultoria — três níveis, para a microfranquia | **Estrutura no ar, inerte** · telas quando houver franqueado |
 | **1.4.0** | CRM rastreável, integração com Meta Ads e o score como curva | Planejada |
+
+**Sobre a 1.3.0 — como ela foi feita sem o risco que eu temia.** A objeção era
+real: mexer em RLS às vésperas da operação troca um custo que cresce devagar
+por um risco que aparece de uma vez. A saída foi construir a estrutura de modo
+**aditivo**: as policies ganharam um termo a mais unido por `or`, e termo com
+`or` só amplia acesso. Esse termo consulta a tabela `consultores`, que nasce
+vazia — logo devolve falso para todos, e nada mudou de comportamento.
+
+O que **não** foi feito, de propósito: estreitar `is_platform_staff()` para o
+franqueador ver apenas a própria carteira. Essa é a mudança que de fato reduz
+acesso, e fica para quando existir franqueado — momento em que dá para testar
+com dois perfis lado a lado.
+
+Faltam as telas de cadastro de consultoria e vínculo de consultores. Enquanto
+não houver franqueado, elas não têm o que mostrar: dá para cadastrar o primeiro
+por SQL (o roteiro está no fim do `18_consultorias.sql`) e construir a
+interface quando a operação justificar.
 
 Numerar assim segue a convenção do versionamento semântico: `1.0.0` é o que
 já está de pé e funcionando, não o que vem depois. As frentes abaixo são os
@@ -58,6 +77,17 @@ cancelamento.
 **Escopo mínimo da primeira versão:** lista de ações com prazo, dono e check,
 mais a visão consolidada do consultor. O PDF do PLAN entra como anexo. Matriz
 GUT e o resto do PDCA ficam fora.
+
+**Entregue (agosto/2026):** tabelas `planos_acao`, `acoes` e `acao_eventos`,
+com a taxonomia de causas-raiz como enum do banco; quadro do cliente com
+check; consolidado do consultor ordenado por dias sem movimento; e a tela de
+montagem do plano. A divisão de papéis vive no banco — o consultor prescreve,
+o cliente só altera o status, e um trigger reverte o resto.
+
+**Ficou de fora, para depois das primeiras consultorias reais:** verificação
+automática das ações pelo próprio sistema (o campo `verificacao` já existe e
+está sem uso), matriz GUT e 5W2H completo. O que decide o formato disso é a
+lista de ações que se repetirem na prática — e isso não se projeta de cabeça.
 
 **Antes de construir:** usar o beta para colher o vocabulário. Anotar as ações
 reais prescritas nas primeiras consultorias. O que separa esse recurso de um

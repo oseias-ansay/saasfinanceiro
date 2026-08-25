@@ -634,3 +634,352 @@ adminRouter.get('/validacao', async (_req, res, next) => {
     next(e);
   }
 });
+
+// =====================================================================
+// CONSULTORIAS (microfranquia)
+// =====================================================================
+// Tudo aqui é do franqueador — o `requireStaff` no topo do router já
+// garante isso. Um consultor autenticado que chamar estes endereços
+// recebe 403 antes de qualquer consulta ao banco.
+//
+// Por que existe endpoint, e não só tela lendo o Supabase direto: vincular
+// um consultor pode precisar CRIAR a conta de acesso dele, e criar conta
+// no GoTrue exige service_role. Essa chave não pode existir no navegador.
+
+/** Mesma função de `idDaRota`, com a mensagem certa para este recurso. */
+function consultoriaDaRota(req: Request): string {
+  const id = req.params.id;
+  if (!id) throw notFound('Consultoria não encontrada');
+  return id;
+}
+
+/**
+ * Nomes que não podem virar slug.
+ *
+ * O slug vira subdomínio. Um franqueado chamado "app" ou "admin" criaria
+ * um endereço que disputa com a infraestrutura — e o estrago só apareceria
+ * no dia em que alguém precisasse daquele host. O banco não sabe disso
+ * (para ele slug é só texto no formato certo), então a regra mora aqui.
+ */
+const SLUGS_RESERVADOS = new Set([
+  'www', 'api', 'api-financeiro', 'n8n', 'app', 'admin', 'mail',
+  'painel', 'login', 'suporte', 'blog', 'teste',
+]);
+
+const slugSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Use apenas letras minúsculas, números e hífen')
+  .min(3)
+  .max(40)
+  .refine((s) => !SLUGS_RESERVADOS.has(s), 'Este endereço é reservado pela plataforma');
+
+const telefoneSchema = z
+  .string()
+  .transform((v) => v.replace(/\D/g, ''))
+  .refine((v) => v === '' || /^[0-9]{12,13}$/.test(v), 'Informe com DDI e DDD, ex: 5541999999999');
+
+/**
+ * A rede inteira, com carteira e situação da página.
+ *
+ * Três consultas em vez de uma: `vw_consultorias` traz os indicadores de
+ * aderência ao método, a tabela traz os campos da página pública, e
+ * `consultores` traz quem opera cada uma. Juntar no banco exigiria uma
+ * view nova a cada campo que a tela passasse a mostrar.
+ */
+adminRouter.get('/consultorias', async (_req, res, next) => {
+  try {
+    const [resumo, cadastro, vinculos] = await Promise.all([
+      dbSemTipos.from('vw_consultorias').select('*').order('nome'),
+      dbSemTipos
+        .from('consultorias')
+        .select('id, slug, titulo, apresentacao, foto_url, regiao, whatsapp, linkedin, pagina_publica, observacao'),
+      dbSemTipos.from('consultores').select('consultoria_id, user_id, papel, is_active'),
+    ]);
+
+    const falha = [resumo, cadastro, vinculos].find((r) => r.error);
+    if (falha?.error) throw fromPostgrest(falha.error);
+
+    // O e-mail de quem opera vem de `profiles`, porque `consultores`
+    // referencia `auth.users` e o PostgREST não atravessa esse caminho.
+    const ids: string[] = [
+      ...new Set(
+        ((vinculos.data ?? []) as { user_id: string }[]).map((v) => v.user_id),
+      ),
+    ];
+    const { data: perfis } = ids.length
+      ? await supabaseAdmin.from('profiles').select('id, email, full_name').in('id', ids)
+      : { data: [] as { id: string; email: string | null; full_name: string | null }[] };
+
+    const emailDe = new Map((perfis ?? []).map((p) => [p.id, p]));
+    const porConsultoria = new Map<string, unknown[]>();
+    for (const v of (vinculos.data ?? []) as {
+      consultoria_id: string;
+      user_id: string;
+      papel: string;
+      is_active: boolean;
+    }[]) {
+      const lista = porConsultoria.get(v.consultoria_id) ?? [];
+      lista.push({
+        user_id: v.user_id,
+        papel: v.papel,
+        is_active: v.is_active,
+        email: emailDe.get(v.user_id)?.email ?? null,
+        nome: emailDe.get(v.user_id)?.full_name ?? null,
+      });
+      porConsultoria.set(v.consultoria_id, lista);
+    }
+
+    const pagina = new Map(
+      ((cadastro.data ?? []) as { id: string }[]).map((c) => [c.id, c]),
+    );
+
+    res.json({
+      data: ((resumo.data ?? []) as { id: string }[]).map((k) => ({
+        ...k,
+        ...(pagina.get(k.id) ?? {}),
+        consultores: porConsultoria.get(k.id) ?? [],
+      })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const novaConsultoriaSchema = z.object({
+  nome: z.string().trim().min(2).max(120),
+  responsavel: z.string().trim().max(120).optional(),
+  email_contato: z.string().email().transform((v) => v.trim().toLowerCase()).optional(),
+  cnpj: z
+    .string()
+    .transform((v) => v.replace(/\D/g, ''))
+    .refine((v) => v === '' || /^[0-9]{14}$/.test(v), 'CNPJ inválido')
+    .optional(),
+  certificada_em: z.string().date().optional(),
+});
+
+/**
+ * Cadastra uma consultoria.
+ *
+ * Nasce sem slug e sem página. Cadastrar o franqueado e publicar a página
+ * dele são momentos diferentes: entre um e outro há foto, texto de
+ * apresentação e, quase sempre, a certificação no método.
+ */
+adminRouter.post('/consultorias', validate(novaConsultoriaSchema), async (req, res, next) => {
+  try {
+    const body = req.body as z.infer<typeof novaConsultoriaSchema>;
+
+    const { data, error } = await dbSemTipos
+      .from('consultorias')
+      .insert({
+        nome: body.nome,
+        responsavel: body.responsavel || null,
+        email_contato: body.email_contato || null,
+        cnpj: body.cnpj || null,
+        certificada_em: body.certificada_em || null,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === '23505') throw conflict('Já existe uma consultoria com este CNPJ');
+      throw fromPostgrest(error);
+    }
+
+    res.status(201).json({ data });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const editarConsultoriaSchema = z.object({
+  nome: z.string().trim().min(2).max(120).optional(),
+  responsavel: z.string().trim().max(120).nullable().optional(),
+  certificada_em: z.string().date().nullable().optional(),
+  is_active: z.boolean().optional(),
+  slug: slugSchema.optional(),
+  titulo: z.string().trim().max(160).nullable().optional(),
+  apresentacao: z.string().trim().max(1200).nullable().optional(),
+  foto_url: z.string().url().nullable().optional(),
+  regiao: z.string().trim().max(120).nullable().optional(),
+  whatsapp: telefoneSchema.nullable().optional(),
+  linkedin: z.string().url().nullable().optional(),
+  pagina_publica: z.boolean().optional(),
+});
+
+/**
+ * Edita a consultoria e os campos da página pública.
+ *
+ * Publicar sem slug é recusado aqui e não no banco: a restrição do banco
+ * aceita `pagina_publica = true` com slug nulo, e a linha simplesmente não
+ * apareceria na view — uma página "publicada" que não existe é pior que um
+ * erro, porque ninguém vai procurar o motivo.
+ */
+adminRouter.patch('/consultorias/:id', validate(editarConsultoriaSchema), async (req, res, next) => {
+  try {
+    const id = consultoriaDaRota(req);
+    const body = req.body as z.infer<typeof editarConsultoriaSchema>;
+
+    const { data: atual, error: errA } = await dbSemTipos
+      .from('consultorias')
+      .select('slug, pagina_publica')
+      .eq('id', id)
+      .maybeSingle();
+    if (errA) throw fromPostgrest(errA);
+    if (!atual) throw notFound('Consultoria não encontrada');
+
+    const slugFinal = body.slug ?? atual.slug;
+    const publicando = body.pagina_publica ?? atual.pagina_publica;
+    if (publicando && !slugFinal) {
+      throw badRequest('Defina o endereço da página antes de publicá-la');
+    }
+
+    const { data, error } = await dbSemTipos
+      .from('consultorias')
+      .update(body)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === '23505') throw conflict('Este endereço já pertence a outra consultoria');
+      throw fromPostgrest(error);
+    }
+
+    res.json({ data });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const vincularSchema = z.object({
+  email: z.string().email().transform((v) => v.trim().toLowerCase()),
+  /** 'titular' é o franqueado; 'consultor' é quem trabalha na equipe dele. */
+  papel: z.enum(['titular', 'consultor']).default('consultor'),
+});
+
+/**
+ * Vincula uma pessoa à consultoria, criando o acesso se ela ainda não tiver.
+ *
+ * O vínculo é com a CONSULTORIA, não com as empresas: por isso não se cria
+ * membership nenhuma aqui. O consultor passa a enxergar a carteira porque
+ * `is_consultor_de()` responde verdadeiro, e ele deixa de enxergar no dia
+ * em que o vínculo for desativado — sem varrer empresa por empresa.
+ */
+adminRouter.post('/consultorias/:id/consultores', validate(vincularSchema), async (req, res, next) => {
+  try {
+    const consultoriaId = consultoriaDaRota(req);
+    const { email, papel } = req.body as z.infer<typeof vincularSchema>;
+
+    const { data: consultoria, error: errK } = await dbSemTipos
+      .from('consultorias')
+      .select('id, nome')
+      .eq('id', consultoriaId)
+      .maybeSingle();
+    if (errK) throw fromPostgrest(errK);
+    if (!consultoria) throw notFound('Consultoria não encontrada');
+
+    const { data: perfil } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .eq('email', email)
+      .maybeSingle();
+
+    let userId: string | undefined = perfil?.id;
+    let senha: string | undefined;
+
+    if (!userId) {
+      senha = senhaTemporaria();
+      const { data, error } = await supabaseAdmin.auth.admin.createUser({
+        email,
+        password: senha,
+        email_confirm: true,
+        user_metadata: { senha_provisoria: true },
+      });
+      if (error) throw badRequest(`Não foi possível criar o acesso: ${error.message}`);
+      userId = data.user.id;
+      await supabaseAdmin.from('profiles').upsert({ id: userId, email });
+    }
+
+    // Reativa em vez de duplicar: quem já foi consultor e voltou mantém o
+    // mesmo registro, e o histórico de quando entrou continua legível.
+    const { error } = await dbSemTipos
+      .from('consultores')
+      .upsert(
+        { consultoria_id: consultoriaId, user_id: userId, papel, is_active: true },
+        { onConflict: 'consultoria_id,user_id' },
+      );
+    if (error) throw fromPostgrest(error);
+
+    res.status(201).json({
+      data: {
+        consultoria_id: consultoriaId,
+        user_id: userId,
+        email,
+        papel,
+        senha_temporaria: senha ?? null,
+        usuario_ja_existia: !senha,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * Desativa o vínculo — não apaga.
+ *
+ * Apagar removeria a resposta para "quem atendia esta carteira em março".
+ * Desativar corta o acesso na mesma hora, porque `is_consultor_de()` exige
+ * `is_active`, e preserva o registro.
+ */
+adminRouter.delete('/consultorias/:id/consultores/:userId', async (req, res, next) => {
+  try {
+    const consultoriaId = consultoriaDaRota(req);
+    const userId = req.params.userId;
+    if (!userId) throw notFound('Vínculo não encontrado');
+
+    const { data, error } = await dbSemTipos
+      .from('consultores')
+      .update({ is_active: false })
+      .eq('consultoria_id', consultoriaId)
+      .eq('user_id', userId)
+      .select('consultoria_id, user_id, is_active')
+      .maybeSingle();
+
+    if (error) throw fromPostgrest(error);
+    if (!data) throw notFound('Vínculo não encontrado');
+
+    res.json({ data });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const carteiraSchema = z.object({
+  /** Nulo devolve a empresa à carteira da própria Business Triage. */
+  consultoria_id: z.string().uuid().nullable(),
+});
+
+/** Move uma empresa para a carteira de uma consultoria. */
+adminRouter.patch('/tenants/:id/consultoria', validate(carteiraSchema), async (req, res, next) => {
+  try {
+    const tenantId = idDaRota(req);
+    const { consultoria_id } = req.body as z.infer<typeof carteiraSchema>;
+
+    const { data, error } = await dbSemTipos
+      .from('tenants')
+      .update({ consultoria_id })
+      .eq('id', tenantId)
+      .select('id, name, consultoria_id')
+      .maybeSingle();
+
+    if (error) throw fromPostgrest(error);
+    if (!data) throw notFound('Empresa não encontrada');
+
+    res.json({ data });
+  } catch (e) {
+    next(e);
+  }
+});
