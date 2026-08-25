@@ -70,6 +70,16 @@ const registrarSchema = z.object({
   indicadores: z.record(z.unknown()).default({}),
   alertas: z.array(z.record(z.unknown())).default([]),
   analise: z.record(z.unknown()).default({}),
+
+  /**
+   * Versão da régua que produziu este score.
+   *
+   * O default aqui é rede de segurança para os fluxos do n8n que ainda não
+   * mandam o campo. Quando a régua mudar, é o n8n que passa a informar a
+   * versão nova — e diagnósticos antigos continuam marcados com a que os
+   * gerou. Recalcular em silêncio é o que transforma a curva em ficção.
+   */
+  regua_versao: z.string().max(20).default('v1'),
 });
 
 /**
