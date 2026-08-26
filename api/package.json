@@ -9,6 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
+    "test": "tsc -p tsconfig.json && node --test dist/**/*.test.js",
+    "paridade:regua": "tsc -p tsconfig.json && node scripts/paridade-regua/paridade.mjs",
     "types:gen": "supabase gen types typescript --db-url \"$SUPABASE_DB_URL\" --schema public > src/types/database.types.ts"
   },
   "dependencies": {

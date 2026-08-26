@@ -13,7 +13,8 @@ As perguntas que continuam em aberto estão marcadas como tal.
 | **1.0.2** | Marco zero, versão da régua e painel de validação comercial | **No ar** |
 | **1.1.0** | Acompanhamento do PDCA — quadro do cliente, consolidado do consultor e montagem do plano | **No ar** |
 | **1.2.0** | Diagnóstico periódico a partir dos lançamentos, com a fronteira gratuito × assinante | Planejada |
-| **1.3.0** | Camada de consultoria — três níveis, para a microfranquia | **Estrutura no ar, inerte** · telas quando houver franqueado |
+| **1.3.0** | Camada de consultoria — três níveis, para a microfranquia | **No ar** |
+| **1.3.1** | Página pública do consultor por subdomínio, painel próprio e tela de gestão da rede | **No ar** |
 | **1.4.0** | CRM rastreável, integração com Meta Ads e o score como curva | Planejada |
 
 **Sobre a 1.3.0 — como ela foi feita sem o risco que eu temia.** A objeção era
@@ -28,10 +29,42 @@ franqueador ver apenas a própria carteira. Essa é a mudança que de fato reduz
 acesso, e fica para quando existir franqueado — momento em que dá para testar
 com dois perfis lado a lado.
 
-Faltam as telas de cadastro de consultoria e vínculo de consultores. Enquanto
-não houver franqueado, elas não têm o que mostrar: dá para cadastrar o primeiro
-por SQL (o roteiro está no fim do `18_consultorias.sql`) e construir a
-interface quando a operação justificar.
+**A 1.3.1 acordou a estrutura.** O que estava dormindo passou a operar com um
+consultor real: `Consultoria Teste`, com conta separada, carteira própria e
+página em `teste.businesstriage.com.br`. Os três testes que importavam
+passaram — o subdomínio resolve a página do consultor, o domínio principal
+continua na home, e a conta do consultor enxerga só a própria carteira, sem
+"Nova empresa" e sem "Validação".
+
+Entraram nesta versão:
+
+- **Página pública por subdomínio.** O mesmo pacote serve todos os endereços;
+  o que muda é o `hostname` lido em tempo de execução. O botão de WhatsApp
+  carrega `(ref: <slug>)`, então o lead nasce atribuído e a página deixa de ser
+  cartão de visita para virar canal medido.
+- **Painel com recorte por papel** (`usePapel`): franqueador, consultor ou
+  cliente. O filtro de verdade continua no RLS — o front só decide o que
+  aparece no menu.
+- **Tela de Consultores**, em Administração. Cadastra a consultoria, vincula
+  pessoas por e-mail (criando o acesso com senha provisória quando não existe),
+  configura e publica a página.
+
+Duas regras que a tela impõe e o banco não impõe: publicar exige endereço
+definido — o banco aceitaria uma página "publicada" que não aparece em lugar
+nenhum, pior que um erro porque ninguém procuraria o motivo —, e slugs de
+infraestrutura (`www`, `api`, `app`, `admin`, `n8n`) são recusados, porque o
+slug vira subdomínio.
+
+**O custo por franqueado novo, hoje:** um registro A no DNS e o host somado à
+regra do Traefik. Quando forem três ou quatro, vale trocar por certificado
+curinga — um registro `*` e uma regra só. Não foi feito agora porque o curinga
+exige validação por DNS com token de API da Hostinger, e um passo manual por
+franqueado é mais barato que essa integração enquanto couberem nos dedos de
+uma mão.
+
+**O que continua faltando:** estreitar `is_platform_staff()` (acima), encerrar
+e excluir consultoria pela tela — hoje é SQL —, e a limpeza da conta de acesso
+de quem foi desvinculado, que permanece viva e sem alcançar nada.
 
 Numerar assim segue a convenção do versionamento semântico: `1.0.0` é o que
 já está de pé e funcionando, não o que vem depois. As frentes abaixo são os
