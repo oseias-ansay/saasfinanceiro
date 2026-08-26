@@ -22,12 +22,16 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireTenant, requireRole } from '../../middlewares/auth.js';
+import { requireRecurso } from '../../middlewares/recurso.js';
 import { validate } from '../../middlewares/validate.js';
 import { fromPostgrest, badRequest, notFound } from '../../lib/errors.js';
 
 export const fechamentoRouter = Router();
 
-fechamentoRouter.use(requireAuth, requireTenant);
+// O diagnóstico mensal começa no Básico. O portão fica no router inteiro,
+// e não rota a rota, para que uma rota nova acrescentada aqui nasça
+// protegida em vez de nascer aberta.
+fechamentoRouter.use(requireAuth, requireTenant, requireRecurso('diagnostico_mensal'));
 
 const ESCREVE = requireRole('owner', 'admin', 'member');
 

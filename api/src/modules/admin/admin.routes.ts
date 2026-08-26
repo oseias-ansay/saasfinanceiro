@@ -983,3 +983,104 @@ adminRouter.patch('/tenants/:id/consultoria', validate(carteiraSchema), async (r
     next(e);
   }
 });
+
+// =====================================================================
+// PLANOS E RECURSOS
+// =====================================================================
+// Mudar o plano de uma empresa é ato comercial: muda o que ela paga e o
+// que ela acessa. Fica com o franqueador, e o `requireStaff` no topo do
+// router já garante isso.
+
+/** A escada de planos e o que cada degrau entrega. */
+adminRouter.get('/planos', async (_req, res, next) => {
+  try {
+    const [planos, recursos, composicao] = await Promise.all([
+      dbSemTipos.from('planos').select('*').order('ordem'),
+      dbSemTipos.from('recursos').select('*').order('ordem'),
+      dbSemTipos.from('plano_recursos').select('*'),
+    ]);
+
+    const falha = [planos, recursos, composicao].find((r) => r.error);
+    if (falha?.error) throw fromPostgrest(falha.error);
+
+    const porPlano = new Map<string, string[]>();
+    for (const pr of (composicao.data ?? []) as { plano: string; recurso: string }[]) {
+      porPlano.set(pr.plano, [...(porPlano.get(pr.plano) ?? []), pr.recurso]);
+    }
+
+    res.json({
+      data: {
+        planos: ((planos.data ?? []) as { codigo: string }[]).map((p) => ({
+          ...p,
+          recursos: porPlano.get(p.codigo) ?? [],
+        })),
+        recursos: recursos.data ?? [],
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const planoSchema = z.object({
+  plano: z.string().min(2).max(40),
+  /**
+   * Liberações fora do plano. Lista completa, não incremento: enviar
+   * `[]` remove todas, e é assim que se encerra um piloto.
+   */
+  recursos_extras: z.array(z.string().min(2).max(40)).max(10).optional(),
+});
+
+/**
+ * Muda o plano da empresa e as liberações extras.
+ *
+ * Os dois juntos numa chamada só porque, na prática, eles mudam juntos:
+ * quem promove um cliente de Intermediário para Premium normalmente está
+ * transformando em contrato o CRM que ele usava como piloto — e aí o
+ * extra precisa sair no mesmo movimento, senão fica um resíduo que
+ * ninguém lembra de limpar.
+ */
+adminRouter.patch('/tenants/:id/plano', validate(planoSchema), async (req, res, next) => {
+  try {
+    const tenantId = idDaRota(req);
+    const body = req.body as z.infer<typeof planoSchema>;
+
+    const { data: plano, error: errP } = await dbSemTipos
+      .from('planos')
+      .select('codigo, nome')
+      .eq('codigo', body.plano)
+      .maybeSingle();
+    if (errP) throw fromPostgrest(errP);
+    if (!plano) throw badRequest('Plano inexistente');
+
+    if (body.recursos_extras?.length) {
+      const { data: validos, error: errR } = await dbSemTipos
+        .from('recursos')
+        .select('codigo')
+        .in('codigo', body.recursos_extras);
+      if (errR) throw fromPostgrest(errR);
+
+      const conhecidos = new Set(((validos ?? []) as { codigo: string }[]).map((r) => r.codigo));
+      const desconhecido = body.recursos_extras.find((r) => !conhecidos.has(r));
+      if (desconhecido) throw badRequest(`Recurso inexistente: ${desconhecido}`);
+    }
+
+    const { data, error } = await dbSemTipos
+      .from('tenants')
+      .update({
+        plano: body.plano,
+        plano_desde: new Date().toISOString().slice(0, 10),
+        ...(body.recursos_extras ? { recursos_extras: body.recursos_extras } : {}),
+      })
+      .eq('id', tenantId)
+      .select('id, name, plano, plano_desde, recursos_extras')
+      .maybeSingle();
+
+    if (error) throw fromPostgrest(error);
+    if (!data) throw notFound('Empresa não encontrada');
+
+    res.json({ data });
+  } catch (e) {
+    next(e);
+  }
+});
