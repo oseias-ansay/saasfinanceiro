@@ -20,6 +20,7 @@ import {
 import { reguaRouter } from './modules/regua/regua.routes.js';
 import { mensalRouter } from './modules/mensal/mensal.routes.js';
 import { fechamentoRouter } from './modules/mensal/fechamento.routes.js';
+import { crmRouter } from './modules/crm/crm.routes.js';
 
 export function createApp() {
   const app = express();
@@ -53,6 +54,7 @@ export function createApp() {
   app.use('/api/v1/transactions', transactionsRouter);
   app.use('/api/v1/reports', reportsRouter);
   app.use('/api/v1/fechamento', fechamentoRouter);
+  app.use('/api/v1/crm', crmRouter);
   // Antes do n8nRouter de propósito: montado depois, o prefixo mais curto
   // casaria primeiro e a requisição passaria por dois rate limits e duas
   // verificações de segredo antes de chegar aqui.
