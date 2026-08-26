@@ -230,14 +230,26 @@ mensalRouter.post('/apurar', async (req, res, next) => {
         // Uma empresa com problema não pode derrubar a apuração das
         // outras. O erro entra no resultado para aparecer no e-mail
         // interno — silenciar aqui significaria descobrir meses depois.
-        const msg = e instanceof Error ? e.message : 'Falha desconhecida';
-        logger.error({ tenant_id: alvo.tenant_id, competencia, err: msg }, 'apuração mensal falhou');
+        //
+        // `fromPostgrest` troca a mensagem do banco por um texto genérico
+        // para não vazar detalhe interno ao cliente. Aqui isso atrapalha:
+        // esta rota é interna, chamada com segredo compartilhado, e quem
+        // lê o resultado é você. O `details` traz a mensagem original.
+        const app = e as { message?: string; code?: string; details?: unknown };
+        const msg = app?.message ?? 'Falha desconhecida';
+        const detalhe =
+          typeof app?.details === 'string' && app.details ? ` (${app.code}: ${app.details})` : '';
+
+        logger.error(
+          { tenant_id: alvo.tenant_id, competencia, err: msg, code: app?.code, details: app?.details },
+          'apuração mensal falhou',
+        );
         resultados.push({
           tenant_id: alvo.tenant_id,
           nome: alvo.nome,
           email: alvo.email_owner,
           status: 'erro',
-          erro: msg,
+          erro: msg + detalhe,
         });
       }
     }

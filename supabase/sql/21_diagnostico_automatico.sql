@@ -373,13 +373,13 @@ begin
 
   -- ---- Lançamentos (6 pontos) ----
   if v_ag is null or coalesce(v_ag.faturamento_bruto, 0) = 0 then
-    v_faltas := v_faltas || 'as receitas do mês';
+    v_faltas := array_append(v_faltas, 'as receitas do mês');
   else
     v_pontos := v_pontos + 3;
   end if;
 
   if v_ag is null or coalesce(v_ag.despesas_fixas, 0) = 0 then
-    v_faltas := v_faltas || 'as despesas fixas do mês';
+    v_faltas := array_append(v_faltas, 'as despesas fixas do mês');
   else
     v_pontos := v_pontos + 2;
   end if;
@@ -390,7 +390,7 @@ begin
           + coalesce(v_ag.impostos_sobre_vendas, 0))
          < v_ag.faturamento_bruto * 0.33
   then
-    v_faltas := v_faltas || 'parte das despesas — o total lançado é pequeno demais para o faturamento do mês';
+    v_faltas := array_append(v_faltas, 'parte das despesas — o total lançado é pequeno demais para o faturamento do mês');
   else
     if v_ag is not null then v_pontos := v_pontos + 1; end if;
   end if;
@@ -399,28 +399,28 @@ begin
   -- Endividamento e comportamento pesam junto porque, sem eles, dois
   -- pilares inteiros da régua caem para zero por ausência.
   if v_fe is null then
-    v_faltas := v_faltas || 'a confirmação do fechamento do mês';
+    v_faltas := array_append(v_faltas, 'a confirmação do fechamento do mês');
   else
     if v_fe.passivo_curto_prazo is null or v_fe.passivo_longo_prazo is null then
-      v_faltas := v_faltas || 'o passivo de curto e longo prazo';
+      v_faltas := array_append(v_faltas, 'o passivo de curto e longo prazo');
     else
       v_pontos := v_pontos + 1;
     end if;
 
     if v_fe.parcela_dividas_mensal is null then
-      v_faltas := v_faltas || 'a parcela mensal de dívidas';
+      v_faltas := array_append(v_faltas, 'a parcela mensal de dívidas');
     else
       v_pontos := v_pontos + 1;
     end if;
 
     if v_fe.uso_antecipacao_recebiveis is null then
-      v_faltas := v_faltas || 'a pergunta sobre antecipação de recebíveis';
+      v_faltas := array_append(v_faltas, 'a pergunta sobre antecipação de recebíveis');
     else
       v_pontos := v_pontos + 1;
     end if;
 
     if v_fe.mistura_contas_pf_pj is null then
-      v_faltas := v_faltas || 'a pergunta sobre separação entre conta pessoal e da empresa';
+      v_faltas := array_append(v_faltas, 'a pergunta sobre separação entre conta pessoal e da empresa');
     else
       v_pontos := v_pontos + 1;
     end if;

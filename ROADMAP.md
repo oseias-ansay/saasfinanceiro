@@ -12,7 +12,7 @@ As perguntas que continuam em aberto estão marcadas como tal.
 | **1.0.1** | Correções do beta: extrato linha a linha, exclusão de lançamento visível, troca de senha no primeiro acesso, diagnóstico restrito ao consultor | **No ar** |
 | **1.0.2** | Marco zero, versão da régua e painel de validação comercial | **No ar** |
 | **1.1.0** | Acompanhamento do PDCA — quadro do cliente, consolidado do consultor e montagem do plano | **No ar** |
-| **1.2.0** | Diagnóstico periódico a partir dos lançamentos, com a fronteira gratuito × assinante | Planejada |
+| **1.2.0** | Diagnóstico mensal automático a partir dos lançamentos, com a fronteira gratuito × assinante | **No ar** |
 | **1.3.0** | Camada de consultoria — três níveis, para a microfranquia | **No ar** |
 | **1.3.1** | Página pública do consultor por subdomínio, painel próprio e tela de gestão da rede | **No ar** |
 | **1.4.0** | CRM rastreável, integração com Meta Ads e o score como curva | Planejada |
@@ -129,7 +129,10 @@ cabeça.
 
 ---
 
-## 1.2.0 — Diagnóstico financeiro periódico, a partir dos lançamentos
+## 1.2.0 — Diagnóstico financeiro mensal, a partir dos lançamentos
+
+**No ar desde 26/08/2026.** O texto abaixo era o plano; o que foi construído
+seguiu-o de perto, e as diferenças estão anotadas ao fim da seção.
 
 **O que é.** Em vez do formulário, o score sai dos dados que o cliente já
 registra no Controle Financeiro. Mensal, automático.
@@ -185,6 +188,73 @@ tempo, e o acompanhamento das ações do PDCA.
 O gratuito vende o **diagnóstico**. O pago vende a **continuidade**. São coisas
 diferentes o suficiente para não competirem — e é isso que impede o gratuito de
 canibalizar a assinatura.
+
+---
+
+### O que foi construído, e o que a construção ensinou
+
+**A régua saiu do n8n.** Era o obstáculo escondido: as fórmulas do score viviam
+dentro de um nó de workflow, sem histórico, sem revisão e sem cópia. Escrever o
+cálculo automático sem tirá-las de lá criaria duas implementações da mesma
+regra — e duas implementações divergem. Divergir aqui significa o cliente
+receber 61 pelo formulário e 58 pelo automático no mesmo mês, com os mesmos
+números, destruindo a promessa da página pública: *dois consultores diferentes,
+com os mesmos números, chegam ao mesmo diagnóstico*.
+
+Hoje a régua é `api/src/modules/regua/regua.ts`, versionada, com 24 testes que
+travam cada faixa de pontuação e um script que compara 20.000 entradas
+aleatórias contra a implementação original — zero divergências. O n8n passou a
+consumi-la por HTTP.
+
+O script de paridade prova que a régua está **igual**, não que está **certa**.
+Se havia erro de critério no n8n, ele foi portado fielmente.
+
+**O limiar de completude é 10 de 10.** Exige tudo. Qualquer corte abaixo disso
+significaria emitir score com um pilar zerado por ausência — e a régua herdada
+trata ausência como o pior caso, o que transformaria silêncio do cliente em mau
+desempenho da empresa.
+
+O sinal mais útil da completude é o terceiro: se as despesas lançadas somam
+menos de um terço das receitas, o mês é recusado mesmo com todos os campos
+preenchidos. É o caso perigoso — receitas em dia, despesas esquecidas, score
+alto e falso.
+
+**A "Divergência da DRE" perdeu função.** No automático, lucro informado e
+calculado são o mesmo número, e o indicador nasce sempre zerado. Quem ocupa o
+lugar dele — o alerta de "os lançamentos não estão certos" — é a completude.
+
+**O diagnóstico mensal ficou em tabela separada de `diagnosticos`.** Foi a
+decisão menos óbvia. Aquela tabela alimenta `vw_funil_diagnosticos`, que conta
+linhas como **leads**: dez clientes gerando doze diagnósticos por ano
+colocariam 120 leads falsos no painel de validação — o painel que existe
+justamente para responder se o mercado quer isso. A curva do score une as duas
+origens, porque para o cliente é uma história só.
+
+**A pendência é registro, não ausência de linha.** Um mês que não fechou grava
+`status = 'incompleto'` com a lista do que faltou. Sem isso, o consultor não
+enxergaria "três meses seguidos sem fechamento" — que é sinal de cliente que
+parou, e aparece bem antes do pedido de cancelamento — e o e-mail de cobrança
+ou sairia todo dia ou nunca.
+
+**Confirmar é separado de salvar.** Os sete campos do fechamento vêm
+pré-preenchidos com o mês anterior. Se salvar bastasse, o passivo de janeiro
+seguiria valendo em dezembro sem ninguém ter olhado, e a curva mostraria uma
+estabilidade que é só inércia de formulário. Confirmar é a pessoa dizendo *eu
+olhei e continua valendo*.
+
+**O resumo interno da apuração sai todo mês**, mesmo quando está tudo certo.
+Relatório que só aparece com problema tem um defeito conhecido: no dia em que o
+agendamento parar, o silêncio vira boa notícia.
+
+**Duas armadilhas de Postgres que custaram tempo**, anotadas para não se
+repetirem: `texto[] || 'literal'` é ambíguo e o Postgres tenta ler a string
+como array — use `array_append`. E o editor SQL do Supabase quebra corpos de
+função nos `;` internos; funções escritas como uma única instrução `language
+sql` não têm onde quebrar.
+
+**O que ficou de fora, de propósito:** um segundo lembrete no mês. Cobrar duas
+vezes irrita quem só não teve tempo, e essa é decisão para tomar olhando o
+comportamento de dez clientes reais — não a priori.
 
 ---
 
