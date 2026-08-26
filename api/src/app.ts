@@ -18,6 +18,8 @@ import {
   diagnosticosPublicRouter,
 } from './modules/webhooks/diagnosticos.routes.js';
 import { reguaRouter } from './modules/regua/regua.routes.js';
+import { mensalRouter } from './modules/mensal/mensal.routes.js';
+import { fechamentoRouter } from './modules/mensal/fechamento.routes.js';
 
 export function createApp() {
   const app = express();
@@ -50,12 +52,14 @@ export function createApp() {
   app.use('/api/v1/admin', adminRouter);
   app.use('/api/v1/transactions', transactionsRouter);
   app.use('/api/v1/reports', reportsRouter);
+  app.use('/api/v1/fechamento', fechamentoRouter);
   // Antes do n8nRouter de propósito: montado depois, o prefixo mais curto
   // casaria primeiro e a requisição passaria por dois rate limits e duas
   // verificações de segredo antes de chegar aqui.
   app.use('/api/v1/webhooks/n8n/diagnosticos', diagnosticosRouter);
   // Mesma razão da linha acima: prefixo mais específico primeiro.
   app.use('/api/v1/webhooks/n8n/regua', reguaRouter);
+  app.use('/api/v1/webhooks/n8n/mensal', mensalRouter);
   app.use('/api/v1/webhooks/n8n', n8nRouter);
 
   // Fora de /api: é um link clicado por um humano, no e-mail, e devolve
