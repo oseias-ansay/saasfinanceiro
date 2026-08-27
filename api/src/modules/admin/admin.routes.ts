@@ -1024,21 +1024,14 @@ adminRouter.get('/planos', async (_req, res, next) => {
 
 const planoSchema = z.object({
   plano: z.string().min(2).max(40),
-  /**
-   * Liberações fora do plano. Lista completa, não incremento: enviar
-   * `[]` remove todas, e é assim que se encerra um piloto.
-   */
-  recursos_extras: z.array(z.string().min(2).max(40)).max(10).optional(),
 });
 
 /**
- * Muda o plano da empresa e as liberações extras.
+ * Muda o plano contratado.
  *
- * Os dois juntos numa chamada só porque, na prática, eles mudam juntos:
- * quem promove um cliente de Intermediário para Premium normalmente está
- * transformando em contrato o CRM que ele usava como piloto — e aí o
- * extra precisa sair no mesmo movimento, senão fica um resíduo que
- * ninguém lembra de limpar.
+ * Só o plano. Os add-ons têm vigência própria e vivem em rotas
+ * separadas: juntá-los aqui faria uma troca de plano poder apagar um
+ * contrato anual por descuido de payload.
  */
 adminRouter.patch('/tenants/:id/plano', validate(planoSchema), async (req, res, next) => {
   try {
@@ -1047,39 +1040,119 @@ adminRouter.patch('/tenants/:id/plano', validate(planoSchema), async (req, res, 
 
     const { data: plano, error: errP } = await dbSemTipos
       .from('planos')
-      .select('codigo, nome')
+      .select('codigo')
       .eq('codigo', body.plano)
       .maybeSingle();
     if (errP) throw fromPostgrest(errP);
     if (!plano) throw badRequest('Plano inexistente');
 
-    if (body.recursos_extras?.length) {
-      const { data: validos, error: errR } = await dbSemTipos
-        .from('recursos')
-        .select('codigo')
-        .in('codigo', body.recursos_extras);
-      if (errR) throw fromPostgrest(errR);
-
-      const conhecidos = new Set(((validos ?? []) as { codigo: string }[]).map((r) => r.codigo));
-      const desconhecido = body.recursos_extras.find((r) => !conhecidos.has(r));
-      if (desconhecido) throw badRequest(`Recurso inexistente: ${desconhecido}`);
-    }
-
     const { data, error } = await dbSemTipos
       .from('tenants')
-      .update({
-        plano: body.plano,
-        plano_desde: new Date().toISOString().slice(0, 10),
-        ...(body.recursos_extras ? { recursos_extras: body.recursos_extras } : {}),
-      })
+      .update({ plano: body.plano, plano_desde: new Date().toISOString().slice(0, 10) })
       .eq('id', tenantId)
-      .select('id, name, plano, plano_desde, recursos_extras')
+      .select('id, name, plano, plano_desde')
       .maybeSingle();
 
     if (error) throw fromPostgrest(error);
     if (!data) throw notFound('Empresa não encontrada');
 
     res.json({ data });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const contratoSchema = z.object({
+  recurso: z.string().min(2).max(40),
+  tipo: z.enum(['contratado', 'cortesia', 'piloto']).default('contratado'),
+  /** Meses de vigência. Zero ou ausente = sem prazo. */
+  meses: z.number().int().min(0).max(60).optional(),
+  /** Data de fim explícita, quando não for múltiplo de meses. */
+  fim: z.string().date().nullable().optional(),
+  observacao: z.string().trim().max(300).optional(),
+});
+
+/**
+ * Concede um recurso fora do plano, com vigência.
+ *
+ * `meses` existe porque a venda é falada em meses — "CRM por doze
+ * meses" —, e obrigar a calcular a data de fim à mão é um convite a
+ * errar por um dia justamente no contrato que vale mais caro.
+ */
+adminRouter.post('/tenants/:id/contratos', validate(contratoSchema), async (req, res, next) => {
+  try {
+    const tenantId = idDaRota(req);
+    const body = req.body as z.infer<typeof contratoSchema>;
+
+    const { data: recurso, error: errR } = await dbSemTipos
+      .from('recursos')
+      .select('codigo')
+      .eq('codigo', body.recurso)
+      .maybeSingle();
+    if (errR) throw fromPostgrest(errR);
+    if (!recurso) throw badRequest('Recurso inexistente');
+
+    const inicio = new Date();
+    let fim: string | null = body.fim ?? null;
+
+    if (!fim && body.meses) {
+      const d = new Date(inicio);
+      d.setMonth(d.getMonth() + body.meses);
+      fim = d.toISOString().slice(0, 10);
+    }
+
+    const { data, error } = await dbSemTipos
+      .from('tenant_recursos')
+      .upsert(
+        {
+          tenant_id: tenantId,
+          recurso: body.recurso,
+          inicio: inicio.toISOString().slice(0, 10),
+          fim,
+          tipo: body.tipo,
+          observacao: body.observacao ?? null,
+        },
+        { onConflict: 'tenant_id,recurso' },
+      )
+      .select()
+      .single();
+
+    if (error) throw fromPostgrest(error);
+    res.status(201).json({ data });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Encerra um add-on. Remove a linha: sem contrato, sem histórico a preservar. */
+adminRouter.delete('/tenants/:id/contratos/:recurso', async (req, res, next) => {
+  try {
+    const tenantId = idDaRota(req);
+    const recurso = req.params.recurso;
+    if (!recurso) throw badRequest('Recurso não informado');
+
+    const { error } = await dbSemTipos
+      .from('tenant_recursos')
+      .delete()
+      .eq('tenant_id', tenantId)
+      .eq('recurso', recurso);
+
+    if (error) throw fromPostgrest(error);
+    res.status(204).end();
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Add-ons vencidos ou a vencer em 30 dias. */
+adminRouter.get('/contratos-vencendo', async (req, res, next) => {
+  try {
+    const { data, error } = await dbSemTipos
+      .from('vw_contratos_vencendo')
+      .select('*')
+      .order('dias_para_vencer');
+    if (error) throw fromPostgrest(error);
+    res.json({ data: data ?? [] });
   } catch (e) {
     next(e);
   }

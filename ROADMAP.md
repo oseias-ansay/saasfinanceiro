@@ -15,7 +15,33 @@ As perguntas que continuam em aberto estão marcadas como tal.
 | **1.2.0** | Diagnóstico mensal automático a partir dos lançamentos, com a fronteira gratuito × assinante | **No ar** |
 | **1.3.0** | Camada de consultoria — três níveis, para a microfranquia | **No ar** |
 | **1.3.1** | Página pública do consultor por subdomínio, painel próprio e tela de gestão da rede | **No ar** |
-| **1.4.0** | CRM rastreável, integração com Meta Ads e o score como curva | Planejada |
+| **1.4.0** | CRM rastreável — funil, métricas e CAC | **No ar** · vendido como contrato anual à parte |
+| **1.4.1** | Meta Ads nos dois sentidos: verba entrando, conversões saindo | Planejada · depende de revisão da Meta |
+
+**Os planos, e por que o CRM saiu deles.** A escada comercial ficou assim:
+
+| Plano | O que entrega | Cobrança |
+|---|---|---|
+| Gratuito | Controle Financeiro e um diagnóstico avulso | — |
+| Básico | + diagnóstico mensal, curva e PDCA financeiro | mensal |
+| Intermediário | + PDCA comercial | mensal |
+| Premium | *sem diferencial próprio hoje* | — |
+| **CRM** | funil rastreável, CAC e ticket realizado | **contrato anual, sobre qualquer plano** |
+
+O CRM foi tirado da composição dos planos e virou add-on de doze meses. A
+razão é a implantação: Business Manager, pixel e token são configurados
+cliente a cliente, não por autoatendimento. Serviço com custo de entrada alto
+não se vende por mês.
+
+Consequência a resolver: **sem o CRM, o Premium ficou igual ao Intermediário.**
+Está fora de oferta até ganhar conteúdo próprio ou ser removido.
+
+**Contrato ≠ plano.** `tenants.plano` é a mensalidade; `tenant_recursos` são os
+add-ons, com início, fim e a que título — contratado, cortesia ou piloto.
+Separar os três mantém honesta a leitura de receita, e a vigência faz o acesso
+cair sozinho no dia seguinte ao vencimento. O aviso sai trinta dias antes,
+porque a conversa de renovação precisa acontecer antes de o cliente perder a
+tela.
 
 **Sobre a 1.3.0 — como ela foi feita sem o risco que eu temia.** A objeção era
 real: mexer em RLS às vésperas da operação troca um custo que cresce devagar
