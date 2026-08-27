@@ -167,7 +167,12 @@ grant execute on function public.fn_tenant_tem_recurso(uuid, text) to authentica
 -- `dias_para_vencer` viaja junto para a tela do cliente poder avisar sem
 -- fazer conta — e para o aviso aparecer antes de o recurso sumir.
 
-create or replace view public.vw_meus_recursos
+-- DROP obrigatório: a última coluna deixa de ser `recursos_extras` e
+-- passa a ser `contratos`. `create or replace` não renomeia coluna de
+-- view — recusa com 42P16 e desfaz o arquivo inteiro.
+drop view if exists public.vw_meus_recursos;
+
+create view public.vw_meus_recursos
 with (security_invoker = on) as
 select
   t.id     as tenant_id,

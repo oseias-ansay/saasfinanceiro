@@ -445,7 +445,7 @@ crmRouter.get('/leads/:id', async (req, res, next) => {
     const id = req.params.id;
     if (!id) throw notFound('Lead não encontrado');
 
-    const [lead, movimentos] = await Promise.all([
+    const [lead, movimentos, notas] = await Promise.all([
       db
         .from('vw_funil_leads')
         .select('*')
@@ -457,13 +457,26 @@ crmRouter.get('/leads/:id', async (req, res, next) => {
         .select('de, para, em')
         .eq('lead_id', id)
         .order('em'),
+      db
+        .from('lead_notas')
+        .select('id, texto, autor_nome, em')
+        .eq('lead_id', id)
+        // Mais recente primeiro: numa negociação, o que importa é o que
+        // foi dito por último.
+        .order('em', { ascending: false }),
     ]);
 
-    const falha = [lead, movimentos].find((r) => r.error);
+    const falha = [lead, movimentos, notas].find((r) => r.error);
     if (falha?.error) throw fromPostgrest(falha.error);
     if (!lead.data) throw notFound('Lead não encontrado');
 
-    res.json({ data: { lead: lead.data, movimentos: movimentos.data ?? [] } });
+    res.json({
+      data: {
+        lead: lead.data,
+        movimentos: movimentos.data ?? [],
+        notas: notas.data ?? [],
+      },
+    });
   } catch (e) {
     next(e);
   }
@@ -559,6 +572,57 @@ crmRouter.put('/investimento', ESCREVE, validate(investimentoSchema), async (req
 
     if (error) throw fromPostgrest(error);
     res.json({ data });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const notaSchema = z.object({
+  texto: z.string().trim().min(2).max(4000),
+});
+
+/**
+ * Registra o que foi negociado.
+ *
+ * O nome do autor é resolvido aqui e gravado como texto. A anotação é
+ * registro histórico: precisa continuar legível depois de a pessoa sair
+ * da empresa e o perfil dela ser removido.
+ */
+crmRouter.post('/leads/:id/notas', ESCREVE, validate(notaSchema), async (req, res, next) => {
+  try {
+    const db = semTipos(req);
+    const id = req.params.id;
+    if (!id) throw notFound('Lead não encontrado');
+
+    const { data: lead, error: errL } = await db
+      .from('leads')
+      .select('id')
+      .eq('id', id)
+      .eq('tenant_id', req.tenantId!)
+      .maybeSingle();
+    if (errL) throw fromPostgrest(errL);
+    if (!lead) throw notFound('Lead não encontrado');
+
+    const { data: perfil } = await db
+      .from('profiles')
+      .select('full_name, email')
+      .eq('id', req.user!.id)
+      .maybeSingle();
+
+    const { data, error } = await db
+      .from('lead_notas')
+      .insert({
+        lead_id: id,
+        tenant_id: req.tenantId!,
+        texto: (req.body as z.infer<typeof notaSchema>).texto,
+        autor_id: req.user!.id,
+        autor_nome: perfil?.full_name ?? perfil?.email ?? null,
+      })
+      .select()
+      .single();
+
+    if (error) throw fromPostgrest(error);
+    res.status(201).json({ data });
   } catch (e) {
     next(e);
   }

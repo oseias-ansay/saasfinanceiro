@@ -100,7 +100,9 @@ comment on function public.fn_tenant_tem_recurso(uuid, text) is
 revoke all on function public.fn_tenant_tem_recurso(uuid, text) from public;
 grant execute on function public.fn_tenant_tem_recurso(uuid, text) to authenticated;
 
-create or replace view public.vw_meus_recursos
+drop view if exists public.vw_meus_recursos;
+
+create view public.vw_meus_recursos
 with (security_invoker = on) as
 select
   t.id     as tenant_id,
