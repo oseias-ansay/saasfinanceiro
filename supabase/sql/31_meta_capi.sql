@@ -205,8 +205,16 @@ as $$
    where id = p_id
 $$;
 
-revoke all on function public.fn_eventos_meta_pendentes(int) from public, anon, authenticated;
-revoke all on function public.fn_evento_meta_baixa(uuid, boolean, text, jsonb) from public, anon, authenticated;
+revoke all on function public.fn_eventos_meta_pendentes(int) from anon, authenticated;
+
+-- A API fala pelo `service_role`. Sem o grant explícito ele ficaria de
+-- fora junto com o cliente, porque dependia da permissão do `public`.
+grant execute on function public.fn_eventos_meta_pendentes(int) to service_role;
+revoke all on function public.fn_evento_meta_baixa(uuid, boolean, text, jsonb) from anon, authenticated;
+
+-- A API fala pelo `service_role`. Sem o grant explícito ele ficaria de
+-- fora junto com o cliente, porque dependia da permissão do `public`.
+grant execute on function public.fn_evento_meta_baixa(uuid, boolean, text, jsonb) to service_role;
 
 -- ---------------------------------------------------------------------
 -- Para você olhar

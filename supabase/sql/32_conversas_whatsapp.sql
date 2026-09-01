@@ -233,7 +233,11 @@ end;
 $fn$;
 
 revoke all on function public.fn_gravar_mensagem(text, text, boolean, text, text, text, text, timestamptz)
-  from public, anon, authenticated;
+  from anon, authenticated;
+
+-- A API fala pelo `service_role`. Sem o grant explícito ele ficaria de
+-- fora junto com o cliente, porque dependia da permissão do `public`.
+grant execute on function public.fn_gravar_mensagem(text, text, boolean, text, text, text, text, timestamptz) to service_role;
 
 -- ---------------------------------------------------------------------
 -- O expurgo
@@ -282,7 +286,11 @@ begin
 end;
 $fn$;
 
-revoke all on function public.fn_purgar_mensagens() from public, anon, authenticated;
+revoke all on function public.fn_purgar_mensagens() from anon, authenticated;
+
+-- A API fala pelo `service_role`. Sem o grant explícito ele ficaria de
+-- fora junto com o cliente, porque dependia da permissão do `public`.
+grant execute on function public.fn_purgar_mensagens() to service_role;
 
 -- ---------------------------------------------------------------------
 -- A conversa, pronta para a tela

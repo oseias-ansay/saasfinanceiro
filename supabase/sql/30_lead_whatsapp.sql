@@ -234,7 +234,11 @@ begin
 end;
 $fn$;
 
-revoke all on function public.fn_lead_do_whatsapp(uuid, text, text, text, public.origem_lead, jsonb) from public, anon, authenticated;
+revoke all on function public.fn_lead_do_whatsapp(uuid, text, text, text, public.origem_lead, jsonb) from anon, authenticated;
+
+-- A API fala pelo `service_role`. Sem o grant explícito ele ficaria de
+-- fora junto com o cliente, porque dependia da permissão do `public`.
+grant execute on function public.fn_lead_do_whatsapp(uuid, text, text, text, public.origem_lead, jsonb) to service_role;
 
 comment on function public.fn_lead_do_whatsapp is
   'Acha ou cria o lead pelo telefone. Nunca sobrescreve etapa nem nome já existentes.';
