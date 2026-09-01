@@ -19,6 +19,8 @@ import {
 } from './modules/webhooks/diagnosticos.routes.js';
 import { reguaRouter } from './modules/regua/regua.routes.js';
 import { mensalRouter } from './modules/mensal/mensal.routes.js';
+import { whatsappRouter } from './modules/webhooks/whatsapp.routes.js';
+import { metaRouter } from './modules/meta/meta.routes.js';
 import { fechamentoRouter } from './modules/mensal/fechamento.routes.js';
 import { crmRouter } from './modules/crm/crm.routes.js';
 
@@ -62,6 +64,8 @@ export function createApp() {
   // Mesma razão da linha acima: prefixo mais específico primeiro.
   app.use('/api/v1/webhooks/n8n/regua', reguaRouter);
   app.use('/api/v1/webhooks/n8n/mensal', mensalRouter);
+  app.use('/api/v1/webhooks/n8n/whatsapp', whatsappRouter);
+  app.use('/api/v1/webhooks/n8n/meta', metaRouter);
   app.use('/api/v1/webhooks/n8n', n8nRouter);
 
   // Fora de /api: é um link clicado por um humano, no e-mail, e devolve

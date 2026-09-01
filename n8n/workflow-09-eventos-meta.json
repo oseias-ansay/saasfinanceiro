@@ -1,0 +1,87 @@
+{
+  "name": "09 — Enviar eventos à Meta",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "cron-meta",
+      "name": "A cada 15 minutos",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api-financeiro.businesstriage.com.br/api/v1/webhooks/n8n/meta/enviar",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-n8n-secret",
+              "value": "COLE_AQUI_O_SEGREDO"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ limite: 50 }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "http-drenar",
+      "name": "API — Drenar Fila",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Enviar eventos à Meta\n\nA cada 15 minutos, pega os eventos pendentes e manda para a Conversions API.\n\n**Por que a cada 15 minutos e não na hora:** mover um card não pode depender de a Meta estar de pé. A fila absorve indisponibilidade, lentidão e reinício sem ninguém perceber. A Meta aceita eventos com atraso de até 7 dias, então 15 minutos não custa atribuição nenhuma.\n\n**Por que não falha em vermelho quando a Meta recusa:** a API responde 200 com o relatório dentro. Evento recusado fica na fila, com o erro anotado, e é tentado de novo. Execução vermelha recorrente treina quem olha a lista a ignorá-la — e aí a falha que importa passa batido.\n\n**Antes de ativar:**\n1. Troque `COLE_AQUI_O_SEGREDO`.\n2. Confirme que `META_DATASET_ID` e `META_ACCESS_TOKEN` estão no `.env` da API.\n3. Deixe `META_TEST_EVENT_CODE` preenchido até ver os eventos chegando na aba Eventos de Teste. Só então apague.\n\n**O que olhar depois:** a resposta traz `com_clique`. Se vier sempre 0, a Meta está casando só por telefone — funciona, mas com acerto bem menor. Ver o LEIA-ME.",
+        "height": 460,
+        "width": 420
+      },
+      "id": "nota",
+      "name": "Leia-me",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        740,
+        180
+      ]
+    }
+  ],
+  "connections": {
+    "A cada 15 minutos": {
+      "main": [
+        [
+          {
+            "node": "API — Drenar Fila",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}

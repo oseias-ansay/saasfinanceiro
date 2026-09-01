@@ -1,0 +1,84 @@
+{
+  "name": "10 — Expurgo de mensagens",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 4 * * *"
+            }
+          ]
+        }
+      },
+      "id": "cron-purga",
+      "name": "Todo dia às 4h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api-financeiro.businesstriage.com.br/api/v1/webhooks/n8n/whatsapp/purgar",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-n8n-secret",
+              "value": "COLE_AQUI_O_SEGREDO"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "http-purga",
+      "name": "API — Purgar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Expurgo de mensagens\n\nApaga as conversas que passaram do prazo de retenção de cada empresa (padrão: 180 dias).\n\n**Este fluxo não é opcional.** Ele é o que torna verdadeira a promessa de retenção feita ao cliente no contrato. Sem ele, a política existe no papel e não no banco — e é exatamente essa diferença que aparece numa fiscalização.\n\n**Às 4h da manhã** porque é quando ninguém está usando: apagar em lote trava a tabela por alguns instantes.\n\n**Se falhar, corrija no mesmo dia.** Alguns dias sem expurgo não são problema; semanas são, porque o volume acumulado faz a primeira execução bem-sucedida apagar muito de uma vez.\n\n**Antes de ativar:** troque `COLE_AQUI_O_SEGREDO`.",
+        "height": 420,
+        "width": 400
+      },
+      "id": "nota",
+      "name": "Leia-me",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        740,
+        180
+      ]
+    }
+  ],
+  "connections": {
+    "Todo dia às 4h": {
+      "main": [
+        [
+          {
+            "node": "API — Purgar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}

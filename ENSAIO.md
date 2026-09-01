@@ -67,14 +67,17 @@ sabe se a página do consultor trouxe alguém.
 
 ### 2. O diagnóstico
 
-- [ ] Logado como consultor, preencha o formulário de diagnóstico com números
-      de uma empresa plausível — não redondos, não perfeitos.
-- [ ] Confirme que o cliente **não** consegue abrir esse formulário sozinho.
+- [ ] **Deslogado**, pelo site, abra `/diagnostico` e preencha o formulário
+      com números de uma empresa plausível — não redondos, não perfeitos.
 - [ ] Veja a prévia do resultado antes de enviar.
 - [ ] Envie e confirme que entrou na fila.
 
-**Anote o tempo.** Este formulário será preenchido durante uma reunião. Se
-levar mais de dez minutos, ele atrapalha a conversa em vez de apoiá-la.
+**Anote o tempo.** A página promete "cerca de dez minutos". Se levar vinte, a
+promessa está errada — e promessa errada no primeiro contato custa mais que
+formulário longo.
+
+**Faça também o teste do abandono:** preencha metade e feche. Quem chega por
+anúncio faz isso o tempo todo, e vale saber o que acontece.
 
 ### 3. O relatório
 

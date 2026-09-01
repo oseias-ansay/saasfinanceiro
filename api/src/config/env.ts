@@ -25,6 +25,25 @@ const schema = z.object({
   // No Alpine da imagem é /usr/bin/chromium-browser; em desenvolvimento
   // no Windows/macOS, aponte para o Chrome instalado.
   CHROMIUM_PATH: z.string().default('/usr/bin/chromium-browser'),
+  // --- Meta Conversions API ---------------------------------------
+  //
+  // Vazias por padrão: a integração fica desligada até alguém preencher,
+  // e desligada é o estado certo enquanto a política de privacidade não
+  // disser que dados de contato podem ir para plataformas de anúncio.
+  META_DATASET_ID: z.string().default(''),
+  META_ACCESS_TOKEN: z.string().default(''),
+
+  // A Meta aposenta versões do Graph API em ciclo de mais ou menos dois
+  // anos, e evento enviado para versão aposentada para de ser aceito —
+  // silenciosamente, que é o pior jeito. Fica em variável para a
+  // atualização ser uma linha no .env, não um deploy.
+  META_API_VERSION: z.string().default('v23.0'),
+
+  // Enquanto preenchido, TODO evento vai como teste: aparece na aba
+  // Eventos de Teste do Gerenciador e não conta para otimização. Apague
+  // para valer de verdade.
+  META_TEST_EVENT_CODE: z.string().default(''),
+
   CORS_ORIGINS: z
     .string()
     .default('')

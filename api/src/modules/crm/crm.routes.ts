@@ -445,7 +445,7 @@ crmRouter.get('/leads/:id', async (req, res, next) => {
     const id = req.params.id;
     if (!id) throw notFound('Lead não encontrado');
 
-    const [lead, movimentos, notas] = await Promise.all([
+    const [lead, movimentos, notas, conversa] = await Promise.all([
       db
         .from('vw_funil_leads')
         .select('*')
@@ -464,6 +464,20 @@ crmRouter.get('/leads/:id', async (req, res, next) => {
         // Mais recente primeiro: numa negociação, o que importa é o que
         // foi dito por último.
         .order('em', { ascending: false }),
+      // A conversa de WhatsApp, se a empresa tiver o histórico ligado.
+      //
+      // Ordem crescente, ao contrário das notas: conversa se lê de cima
+      // para baixo, e inverter faria o diálogo ficar sem sentido.
+      //
+      // Limite alto e não ilimitado: uma negociação longa tem centenas
+      // de mensagens, e trazer todas travaria a abertura do card num
+      // celular — que é onde o consultor abre.
+      db
+        .from('vw_lead_conversa')
+        .select('id, de_mim, texto, tipo_midia, midia_nome, enviada_em')
+        .eq('lead_id', id)
+        .order('enviada_em', { ascending: false })
+        .limit(200),
     ]);
 
     const falha = [lead, movimentos, notas].find((r) => r.error);
@@ -475,6 +489,10 @@ crmRouter.get('/leads/:id', async (req, res, next) => {
         lead: lead.data,
         movimentos: movimentos.data ?? [],
         notas: notas.data ?? [],
+        // Erro aqui não derruba o card: empresa sem o histórico ligado é
+        // o caso normal, e a RLS devolve vazio ou nega. O detalhe do
+        // lead não pode deixar de abrir por causa de um recurso opcional.
+        conversa: conversa.error ? [] : (conversa.data ?? []).reverse(),
       },
     });
   } catch (e) {
