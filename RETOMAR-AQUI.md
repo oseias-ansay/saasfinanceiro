@@ -1,121 +1,127 @@
-# Onde paramos — 31/08/2026
+# Onde paramos — 04/09/2026
 
-Retome por aqui. O guia completo é `IMPLANTACAO-CRM-META.md`; este arquivo
-diz só o que já está feito e qual é o próximo movimento.
+**Retome por `TROCA-EVOLUTION-DIRETO.md`.** É o passo a passo da mudança
+que fizemos hoje, com o caminho de volta em cada etapa.
 
-## Pronto e verificado
+## A decisão de hoje: o n8n sai do caminho do WhatsApp
 
-- **Banco.** Arquivos `30`, `31` e `32` rodaram. As colunas novas de
-  `leads` existem, `whatsapp_instancias` e `lead_mensagens` existem, e
-  `fn_tenant_tem_recurso(business_triage, 'crm')` devolve `true`.
-- **Instância cadastrada** e CRM liberado como piloto.
-- **API no ar.** Confirmado pelo teste da rota: `POST .../whatsapp/contato`
-  responde 401, ou seja, existe e recusou por falta de segredo.
-- **Site publicado**, com a política de privacidade revisada.
+A Evolution passa a falar direto com a API.
 
-## O próximo passo: terminar o fluxo 07 no n8n
+O motivo não foi preferência. Foram dois dias de diagnóstico em três
+defeitos que só existiam por causa do n8n estar no meio, e nenhum deles
+dava erro:
 
-**Não importe o arquivo por cima.** O fluxo em produção divergiu do
-repositório: no n8n, o nó *Evolution — Enviar Resposta* usa a apikey
-escrita direto no cabeçalho; no repositório ele usa credencial. Importar
-trocaria isso e poderia quebrar o envio das respostas.
+- o n8n **aborta a execução inteira** quando um nó falha, então os três
+  ramos desenhados como paralelos não eram independentes: a falha do
+  envio da resposta levava junto o registro do lead;
+- execução no n8n é **fotografia imutável**, então reabrir uma antiga
+  mostrava para sempre o segredo velho — "eu já troquei" e "não colou"
+  eram indistinguíveis;
+- o nó chamava o **domínio público** da própria API, e um contêiner
+  chamando o host de fora não completa a volta. Timeout, sem mensagem.
 
-Faltam três coisas, nesta ordem:
+O teste direto de ontem provou que API, banco, segredo e rede estavam
+todos certos. O que sobrava era só o n8n.
 
-### 1. Colar os quatro nós novos
+### O que ficou pronto
 
-Estão em `n8n/nos-novos-fluxo-07.json`. Copie o conteúdo do arquivo e dê
-`Ctrl+V` com o canvas do fluxo 07 aberto — o n8n cria os quatro já
-ligados entre si.
+| Arquivo | O que é |
+|---|---|
+| `api/src/modules/webhooks/evolution.normalizar.ts` | O nó de código do n8n, agora versionado — **29 testes** |
+| `api/src/modules/webhooks/evolution.processar.ts` | A ordem dos passos e o isolamento das falhas — **13 testes** |
+| `api/src/modules/webhooks/evolution.routes.ts` | A rota `POST /api/v1/webhooks/evolution/inbound` |
+| `api/src/modules/webhooks/whatsapp.service.ts` | As regras de banco, uma cópia só, usada pelos dois caminhos |
+| `api/src/lib/evolution.ts` | O cliente de envio, que **nunca lança** |
+| `supabase/sql/33_eventos_whatsapp.sql` | O registro de eventos, que substitui a lista de execuções |
+| `TROCA-EVOLUTION-DIRETO.md` | O passo a passo, com rollback |
 
-### 2. Trocar o código do nó "Ler Mensagem e Escolher Resposta"
+**84 testes passando**, build limpo, e a rota verificada de ponta a ponta:
+401 sem segredo, 401 com segredo errado, 200 com o certo.
 
-O conteúdo novo está em `n8n/manual/07-no-ler-mensagem.js`. Substitua
-todo o código do nó por ele. É o que passa a produzir `registrar`,
-`guardar`, `contexto`, `de_mim`, `wa_id` e `tipo_midia` — sem isso os
-nós novos recebem `undefined` e não fazem nada.
+### Duas coisas melhoraram sem ter sido pedidas
 
-### 3. Ligar e configurar
+**A resposta automática agora entra no histórico.** O n8n guardava só o
+que o cliente escrevia. Metade do diálogo não resolve divergência sobre o
+que foi combinado — que é para o que esse histórico existe.
 
-- Arraste **duas** conexões da saída de *Ler Mensagem e Escolher
-  Resposta*: uma para **Registrar no CRM?**, outra para **Guardar
-  Conversa?**. O mesmo ponto de saída aceita várias.
-- Troque `COLE_AQUI_O_SEGREDO` nos dois nós de HTTP, com o
-  `N8N_WEBHOOK_SECRET` do `.env` da API.
-- Salve e ative.
+**`vw_eventos_whatsapp` tem uma coluna `veredito`** que compara o que a
+API decidiu com o que ela conseguiu fazer. É onde toda falha silenciosa
+desta integração aparece, e não existia equivalente no n8n.
 
-### Antes de testar: confirme o nome da instância
+```sql
+select veredito, count(*)
+from public.vw_eventos_whatsapp
+where recebido_em > now() - interval '1 day'
+group by veredito;
+```
 
-Errar aqui não gera erro nenhum — simplesmente não grava.
+### O que continua no n8n
+
+Os fluxos **09** (eventos para a Meta) e **10** (expurgo das mensagens).
+Rodam por relógio e não têm lógica — é o que o n8n faz bem.
+
+**Antes de ativá-los**, troque a URL pública pela interna nos dois: eles
+têm exatamente o mesmo defeito que custou os dois dias.
+
+## Se preferir consertar o n8n em vez de trocar
+
+O fluxo 07 continua intacto e é o caminho de volta. Faltavam duas coisas:
+
+1. `On Error → Continue` no nó *Evolution — Enviar Resposta* (aba
+   Settings). Sem isso ele derruba a execução inteira.
+2. URL interna nos dois nós de API:
+   `http://finance-api:3333/api/v1/webhooks/n8n/whatsapp/contato` e
+   `.../mensagem`.
+
+Os arquivos `n8n/workflow-07-whatsapp-inbound.json` e
+`n8n/nos-novos-fluxo-07.json` já foram corrigidos no repositório — antes
+estavam com a URL pública e sem `onError`, ou seja, quem copiasse deles
+reintroduziria o defeito.
+
+## O comando que vale guardar
+
+Divide o problema em dois em dez segundos. Se der `gravada:true`, o que
+estiver errado está no n8n ou na Evolution, não na API nem no banco.
 
 ```bash
-docker logs evolution --tail 200 2>&1 | grep -o '"instance":"[^"]*"' | sort -u
+SEG=$(grep '^N8N_WEBHOOK_SECRET=' /opt/finance-src/api/.env | cut -d= -f2- | tr -d '"'"'"'\r')
+
+docker exec finance-api wget -qO- \
+  --header="Content-Type: application/json" \
+  --header="x-n8n-secret: $SEG" \
+  --post-data='{"instancia":"wa_ultimo","telefone":"554196968720","de_mim":false,"texto":"teste direto","wa_id":"DIRETO003","enviada_em":"2026-09-05T12:00:00.000Z"}' \
+  http://localhost:3333/api/v1/webhooks/n8n/whatsapp/mensagem
 ```
 
-```sql
-select instancia, rotulo, ativa from public.whatsapp_instancias;
-```
+**Troque o `wa_id` a cada execução** — o índice único descarta repetido
+em silêncio.
 
-Se divergirem:
+## Depois da troca
 
-```sql
-update public.whatsapp_instancias
-   set instancia = 'O_NOME_REAL' where instancia = 'wa_ultimo';
-```
-
-### O teste
-
-Do seu celular pessoal, para o número da Business Triage:
-
-| Mande | Esperado |
-|---|---|
-| `oi (ref: anuncio)` | Resposta automática do anúncio + card novo no funil |
-| a mesma coisa de novo | Sem resposta, e **nenhum card novo** |
-| `bom dia, tudo bem?` | Sem resposta, mas a mensagem aparece na conversa do card |
-
-O segundo é o que importa: conversa de WhatsApp tem dez mensagens, e dez
-cards por pessoa dividiriam o CAC pelo número errado.
-
-Depois abra o card e veja se a conversa aparece acima das anotações.
-
-Se não gravar, olhe a execução no n8n — os nós de HTTP mostram a resposta
-da API, que diz o motivo: `instancia_desconhecida`, `sem_crm`, ou lead
-não encontrado.
-
-## Depois disso
-
-- **Passo 6** — ativar o fluxo 10 (expurgo). Dispare uma vez à mão; deve
-  responder `{"apagadas": 0}`.
 - **Passo 7** — configurar a Meta em modo de teste.
-- **Passo 8** — apagar `META_TEST_EVENT_CODE` e reiniciar. Esquecer essa
-  linha preenchida faz a campanha rodar sem sinal nenhum, sem aviso.
+- **Passo 8** — apagar `META_TEST_EVENT_CODE`. Esquecer essa linha
+  preenchida faz a campanha rodar sem sinal nenhum, sem aviso.
 - **Passo 9** — pôr `(ref: anuncio)` na mensagem pré-preenchida do
   anúncio. **É o único item que não dá para corrigir depois:** clique que
-  chegou sem o código não volta.
+  chegou sem o código não volta. A campanha começa em dias.
 
 ## Duas credenciais para trocar
 
-Ambas apareceram em texto claro em conversa e continuam válidas:
-
-1. **Apikey da Evolution** (`DpznNypd1968@...`). Dá controle total sobre o
-   WhatsApp conectado — mandar mensagem para qualquer número em seu nome.
+1. **Apikey da Evolution** (`DpznNypd1968@…`). Apareceu várias vezes em
+   conversa. Dá controle total sobre o WhatsApp conectado. Agora ela
+   também vai para o `.env` da API — troque antes, não depois.
 2. **`N8N_WEBHOOK_SECRET`.** `openssl rand -hex 32`, atualizar o `.env`,
-   reiniciar a API e trocar em todos os nós. Com os fluxos 09 e 10, são
-   mais dois lugares.
+   reiniciar a API. Com a Evolution falando direto, o número de lugares
+   onde ele aparece caiu de quatro para um.
 
-Não é urgente ao ponto de parar a implantação, mas é a primeira coisa
-depois que a campanha estiver de pé.
+**Restrição a preservar:** se voltar para o n8n, não mova esses
+cabeçalhos para credenciais de Header Auth. São globais entre workflows e
+mascaradas, o que já fez "chave errada" ficar indistinguível de "chave
+vazia" e quebrou oito nós de uma vez.
 
-**Restrição a preservar:** não mova esses cabeçalhos para credenciais de
-Header Auth do n8n. Elas são globais entre workflows e mascaradas, o que
-já fez "chave errada" ficar indistinguível de "chave vazia" e quebrou oito
-nós de diagnóstico de uma vez. Mantenha `Authentication: None` com o
-cabeçalho visível em `Send Headers`.
+## Pendências antigas
 
-## Pendências antigas, ainda abertas
-
-- **O formulário do site não cria lead no CRM.** A UTM já é capturada e
-  viaja no envio em `atribuicao`, mas o n8n ainda não faz nada com ela.
-- **Tela de canais e CAC.** A view e a rota existem; falta a tela. É o que
-  permitiria acompanhar a campanha sem abrir o banco.
-- **O ensaio da jornada** (`ENSAIO.md`), nunca percorrido.
+- O formulário do site ainda não cria lead no CRM (a UTM já é capturada e
+  viaja em `atribuicao`, mas ninguém a consome).
+- Tela de canais e CAC: a view e a rota existem, falta a tela.
+- O ensaio da jornada (`ENSAIO.md`), nunca percorrido.

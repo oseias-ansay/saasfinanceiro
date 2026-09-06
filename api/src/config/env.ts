@@ -44,6 +44,26 @@ const schema = z.object({
   // para valer de verdade.
   META_TEST_EVENT_CODE: z.string().default(''),
 
+  // --- Evolution API (WhatsApp) -----------------------------------
+  //
+  // Endereço INTERNO do Docker. A porta pública foi fechada de
+  // propósito, e um contêiner chamando o domínio público do próprio host
+  // não completa a volta — já custou um dia de diagnóstico.
+  EVOLUTION_URL: z
+    .string()
+    .url()
+    .default('http://evolution:8080')
+    .transform((v) => v.replace(/\/+$/, '')),
+
+  EVOLUTION_APIKEY: z.string().default(''),
+
+  // Segredo que a Evolution manda no cabeçalho do webhook.
+  //
+  // Vazio significa "usa o mesmo do n8n" — não significa "sem
+  // verificação". A rota é alcançável pelo domínio público, e sem
+  // segredo qualquer um criaria lead e mensagem falsos.
+  EVOLUTION_WEBHOOK_TOKEN: z.string().default(''),
+
   CORS_ORIGINS: z
     .string()
     .default('')

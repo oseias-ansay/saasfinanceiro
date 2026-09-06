@@ -20,6 +20,7 @@ import {
 import { reguaRouter } from './modules/regua/regua.routes.js';
 import { mensalRouter } from './modules/mensal/mensal.routes.js';
 import { whatsappRouter } from './modules/webhooks/whatsapp.routes.js';
+import { evolutionRouter } from './modules/webhooks/evolution.routes.js';
 import { metaRouter } from './modules/meta/meta.routes.js';
 import { fechamentoRouter } from './modules/mensal/fechamento.routes.js';
 import { crmRouter } from './modules/crm/crm.routes.js';
@@ -67,6 +68,12 @@ export function createApp() {
   app.use('/api/v1/webhooks/n8n/whatsapp', whatsappRouter);
   app.use('/api/v1/webhooks/n8n/meta', metaRouter);
   app.use('/api/v1/webhooks/n8n', n8nRouter);
+
+  // Fora do prefixo /n8n de propósito: a Evolution fala direto com a API
+  // agora, e manter o caminho antigo faria o endereço mentir sobre quem
+  // é o chamador. As rotas em /n8n/whatsapp continuam existindo como
+  // caminho de volta.
+  app.use('/api/v1/webhooks/evolution', evolutionRouter);
 
   // Fora de /api: é um link clicado por um humano, no e-mail, e devolve
   // uma página HTML — não faz parte da API consumida pelo front.

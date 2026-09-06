@@ -32,7 +32,28 @@ import { supabaseAdmin } from '../../lib/supabase.js';
 import { fromPostgrest, badRequest } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
 import { requireWebhookSecret } from './secret.js';
+import {
+  empresaDaInstancia,
+  gravarMensagem,
+  registrarLead,
+  temRecursoCrm,
+} from './whatsapp.service.js';
 
+/**
+ * ---------------------------------------------------------------------
+ * ESTE É O CAMINHO ANTIGO
+ * ---------------------------------------------------------------------
+ * A Evolution agora fala direto com `/webhooks/evolution/inbound`, sem o
+ * n8n no meio. Estas rotas continuam aqui de propósito: são o caminho de
+ * volta, e trocar de volta é mudar uma URL na configuração da Evolution.
+ *
+ * As regras de banco vivem em `whatsapp.service.ts`, usadas pelos dois
+ * caminhos. Duas cópias divergiriam em semanas — alguém corrige uma e
+ * esquece a outra.
+ *
+ * Quando a troca estiver consolidada por algumas semanas, estas rotas
+ * podem sair.
+ */
 export const whatsappRouter = Router();
 
 whatsappRouter.use(
@@ -49,19 +70,6 @@ const db = supabaseAdmin as unknown as {
   rpc: (fn: string, args?: Record<string, unknown>) => any;
 };
 /* eslint-enable @typescript-eslint/no-explicit-any */
-
-/** De qual empresa é esta instância. Nulo se não estiver cadastrada. */
-async function empresaDaInstancia(instancia: string): Promise<string | null> {
-  const { data, error } = await db
-    .from('whatsapp_instancias')
-    .select('tenant_id')
-    .eq('instancia', instancia)
-    .eq('ativa', true)
-    .maybeSingle();
-
-  if (error) throw fromPostgrest(error);
-  return (data as { tenant_id: string } | null)?.tenant_id ?? null;
-}
 
 /* ==================================================================== */
 /* O contato vira lead                                                   */
@@ -107,38 +115,24 @@ whatsappRouter.post('/contato', async (req, res, next) => {
     // que ninguém abre significa despejar tudo de uma vez no dia em que
     // a empresa contratar — com conversas que ela nunca soube que
     // estavam sendo guardadas.
-    const { data: temCrm, error: errRec } = await db.rpc('fn_tenant_tem_recurso', {
-      p_tenant_id: tenantId,
-      p_recurso: 'crm',
-    });
-    if (errRec) throw fromPostgrest(errRec);
-    if (!temCrm) return res.json({ data: { registrado: false, motivo: 'sem_crm' } });
+    if (!(await temRecursoCrm(tenantId))) {
+      return res.json({ data: { registrado: false, motivo: 'sem_crm' } });
+    }
 
-    const { data, error } = await db.rpc('fn_lead_do_whatsapp', {
-      p_tenant_id: tenantId,
-      p_telefone: body.telefone,
-      p_nome: body.nome ?? null,
-      p_wa_ref: body.wa_ref ?? null,
-      p_origem: 'anuncio',
-      p_payload: body.payload ?? null,
+    const r = await registrarLead({
+      tenantId,
+      telefone: body.telefone,
+      nome: body.nome,
+      waRef: body.wa_ref,
+      payload: body.payload,
     });
-    if (error) throw fromPostgrest(error);
-
-    const r = Array.isArray(data) ? data[0] : data;
 
     logger.info(
-      { tenant: tenantId, lead: r?.lead_id, criado: r?.criado, ref: body.wa_ref },
-      r?.criado ? 'Lead criado pelo WhatsApp' : 'Contato de lead já existente',
+      { tenant: tenantId, lead: r.lead_id, criado: r.criado, ref: body.wa_ref },
+      r.criado ? 'Lead criado pelo WhatsApp' : 'Contato de lead já existente',
     );
 
-    res.json({
-      data: {
-        registrado: true,
-        lead_id: r?.lead_id ?? null,
-        criado: r?.criado ?? false,
-        etapa: r?.etapa_atual ?? null,
-      },
-    });
+    res.json({ data: { registrado: true, ...r } });
   } catch (e) {
     next(e);
   }
@@ -183,19 +177,18 @@ whatsappRouter.post('/mensagem', async (req, res, next) => {
       return res.json({ data: { gravada: false, motivo: 'sem_conteudo' } });
     }
 
-    const { data, error } = await db.rpc('fn_gravar_mensagem', {
-      p_instancia: b.instancia,
-      p_telefone: b.telefone,
-      p_de_mim: b.de_mim,
-      p_texto: b.texto ?? null,
-      p_tipo_midia: b.tipo_midia ?? null,
-      p_midia_nome: b.midia_nome ?? null,
-      p_wa_id: b.wa_id ?? null,
-      p_enviada_em: b.enviada_em ?? new Date().toISOString(),
+    const id = await gravarMensagem({
+      instancia: b.instancia,
+      telefone: b.telefone,
+      deMim: b.de_mim,
+      texto: b.texto,
+      tipoMidia: b.tipo_midia,
+      midiaNome: b.midia_nome,
+      waId: b.wa_id,
+      enviadaEm: b.enviada_em,
     });
-    if (error) throw fromPostgrest(error);
 
-    res.json({ data: { gravada: data !== null, id: data ?? null } });
+    res.json({ data: { gravada: id !== null, id } });
   } catch (e) {
     next(e);
   }
