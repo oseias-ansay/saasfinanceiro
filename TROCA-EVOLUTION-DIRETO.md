@@ -66,7 +66,8 @@ para errar hoje.
 ## Passo 3 — Subir a API
 
 ```bash
-cd /opt/finance-src && git pull && docker compose up -d --build finance-api
+cd /opt/finance-src && git pull
+cd api && docker compose up -d --build finance-api
 docker compose logs --tail 20 finance-api
 ```
 
@@ -82,8 +83,34 @@ que é o modo que já custou caro aqui.
 docker exec finance-api wget -qO- --timeout=5 http://evolution:8080/ && echo " ← alcança"
 ```
 
-Sem resposta: ponha os dois na mesma rede (a `traefik-proxy` já é
-compartilhada) e repita. **Não siga com isso em aberto.**
+**`bad address 'evolution:8080'`** significa que os dois contêineres não
+dividem rede nenhuma. Foi o caso aqui: a Evolution vive em
+`evolution_evolution-net` e em `n8n-businestriage_n8n-net` (era por essa
+segunda que o n8n a alcançava), e a API em `traefik-proxy` e
+`supabase_default`.
+
+A correção já está no `api/docker-compose.yml` — a rede da Evolution
+entrou como terceira rede da API. Basta subir de novo:
+
+```bash
+cd /opt/finance-src && git pull
+cd api && docker compose up -d finance-api
+docker exec finance-api wget -qO- --timeout=5 http://evolution:8080/ && echo " ← alcança"
+```
+
+> **Não resolva isso com `docker network connect` à mão.** Funciona até o
+> próximo `--build`, que recria o contêiner e perde a ligação. E a falha
+> resultante é silenciosa: o cliente de envio nunca lança, então o lead
+> continua sendo gravado e só a resposta some — ninguém percebe até
+> alguém reclamar.
+
+Se o nome da rede não bater com o do arquivo, confira o real e ajuste:
+
+```bash
+docker inspect evolution --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+```
+
+**Não siga com isso em aberto.**
 
 ---
 

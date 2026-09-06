@@ -1,11 +1,24 @@
 # =====================================================================
 # API Financeira — deploy no VPS via Traefik
 # =====================================================================
-# A API entra em DUAS redes:
-#   • traefik-proxy    -> recebe tráfego externo (HTTPS)
-#   • supabase_default -> fala com o Kong internamente, sem sair p/ internet
+# A API entra em TRÊS redes:
+#   • traefik-proxy           -> recebe tráfego externo (HTTPS)
+#   • supabase_default        -> fala com o Kong internamente
+#   • evolution_evolution-net -> manda mensagem pela Evolution
 #
 # Não publica porta no host de propósito: quem expõe é o Traefik.
+#
+# ---------------------------------------------------------------------
+# POR QUE A REDE DA EVOLUTION ESTÁ AQUI E NÃO NUM `docker network connect`
+# ---------------------------------------------------------------------
+# Ligar a rede à mão funciona até o próximo `docker compose up --build`,
+# que recria o contêiner e perde a ligação. A API é reconstruída toda
+# semana.
+#
+# E a falha que isso causaria é silenciosa: o DNS de `evolution` para de
+# resolver, o envio da resposta falha, e como o cliente de envio nunca
+# lança, o lead continua sendo gravado normalmente. Ninguém percebe até
+# alguém reclamar que não recebeu resposta.
 # =====================================================================
 services:
   finance-api:
@@ -22,6 +35,7 @@ services:
     networks:
       - traefik-proxy
       - supabase_default
+      - evolution_evolution-net
     labels:
       traefik.enable: "true"
       # Obrigatório quando o container está em mais de uma rede: sem isso o
@@ -47,4 +61,11 @@ networks:
   traefik-proxy:
     external: true
   supabase_default:
+    external: true
+
+  # Criada pelo compose da Evolution. O nome vem do nome da pasta do
+  # projeto dela — se um dia a pasta mudar, este nome muda junto, e o
+  # sintoma é a resposta automática parar sem erro. Confira com:
+  #   docker inspect evolution --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+  evolution_evolution-net:
     external: true
