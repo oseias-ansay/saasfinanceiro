@@ -43,6 +43,19 @@ git push
 
 ---
 
+## Passo 0.5 — O SQL do disjuntor
+
+Junto com o `34-para-colar.sql` do vigia, cole também
+**`supabase/sql/35-para-colar.sql`**.
+
+```sql
+select to_regclass('public.ia_uso')          as tabela,
+       to_regproc('public.fn_ia_reservar')   as reserva;
+```
+
+Ele é o teto diário de chamadas ao modelo. Sem ele, a API sobe e roda —
+só sem proteção contra um defeito que consuma sem parar.
+
 ## Passo 1 — As variáveis novas na API
 
 ```bash
@@ -50,6 +63,7 @@ cat >> /opt/finance-src/api/.env <<'EOF'
 ANTHROPIC_API_KEY=sk-ant-COLE_A_CHAVE
 ANTHROPIC_MODEL=claude-sonnet-4-6
 ANTHROPIC_MAX_TOKENS=16000
+IA_LIMITE_DIARIO=60
 
 SMTP_HOST=
 SMTP_PORT=587

@@ -61,6 +61,26 @@ monitorRouter.post('/verificar', async (_req, res, next) => {
 });
 
 /**
+ * O SMTP responde?
+ *
+ * Não manda e-mail nenhum: abre a conexão, autentica e desliga. Existe
+ * porque credencial errada de SMTP só se manifestaria no primeiro
+ * diagnóstico de verdade, com um prospect esperando do outro lado — e o
+ * erro mais provável não é a senha, é a porta: 465 fala TLS direto, 587
+ * começa em claro e sobe com STARTTLS. Trocar as duas dá "connection
+ * closed" sem nenhuma explicação.
+ */
+monitorRouter.get('/smtp', async (_req, res, next) => {
+  try {
+    const { conferirSmtp } = await import('../../lib/email.js');
+    const r = await conferirSmtp();
+    res.status(r.ok ? 200 : 503).json({ data: { ok: r.ok, erro: r.erro } });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
  * Dispara uma mensagem de teste pelo caminho real do alarme.
  *
  * Existe porque o caminho do alarme tem quatro pontos que podem quebrar

@@ -119,23 +119,34 @@ export async function gerarAnalise<T>(
   prompt: string,
   esquema: ZodType<T>,
   extrair: (bruto: string) => unknown,
-): Promise<{ analise: T; tentativas: number }> {
+): Promise<{
+  analise: T;
+  tentativas: number;
+  /** Consumo somado de todas as tentativas — é o que foi cobrado. */
+  consumo: { entrada: number; saida: number };
+}> {
   const mensagens: Array<{ role: 'user' | 'assistant'; content: string }> = [
     { role: 'user', content: prompt },
   ];
 
   let ultimoErro: unknown = null;
 
+  // Somado, e não o da última tentativa: a cobrança é por chamada, e uma
+  // retentativa que deu certo ainda custou as duas.
+  const consumo = { entrada: 0, saida: 0 };
+
   for (let tentativa = 1; tentativa <= 2; tentativa++) {
     const { texto, usou } = await chamar(mensagens);
+    consumo.entrada += usou?.input_tokens ?? 0;
+    consumo.saida += usou?.output_tokens ?? 0;
 
     try {
       const analise = esquema.parse(extrair(texto));
       logger.info(
-        { tentativa, entrada: usou?.input_tokens, saida: usou?.output_tokens },
+        { tentativa, entrada: consumo.entrada, saida: consumo.saida },
         'Análise gerada',
       );
-      return { analise, tentativas: tentativa };
+      return { analise, tentativas: tentativa, consumo };
     } catch (e) {
       ultimoErro = e;
       const motivo = e instanceof Error ? e.message : String(e);

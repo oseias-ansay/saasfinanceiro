@@ -23,6 +23,7 @@ import {
   type AnaliseFinanceira,
 } from './analise.js';
 import { gravarDiagnostico, marcarStatus, obterPdf } from './diagnosticos.service.js';
+import { registrarConsumo, reservarChamada } from './orcamento.js';
 import { esc } from './template.js';
 import type { Dependencias, TipoDiagnostico } from './processar.js';
 
@@ -53,10 +54,17 @@ export const dependenciasReais: Dependencias = {
   },
 
   analisar: async (tipo, prompt) => {
-    const { analise } =
+    // Reserva ANTES de falar com o modelo. Depois seria contabilizar o
+    // que já foi gasto, que é o oposto de um teto.
+    await reservarChamada();
+
+    const { analise, consumo } =
       tipo === 'comercial'
         ? await gerarAnalise(prompt, esquemaAnaliseComercial, extrairJson)
         : await gerarAnalise(prompt, esquemaAnaliseFinanceira, extrairJson);
+
+    await registrarConsumo(consumo.entrada, consumo.saida);
+
     return analise as AnaliseFinanceira | AnaliseComercial;
   },
 

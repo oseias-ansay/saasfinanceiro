@@ -97,6 +97,14 @@ const schema = z.object({
   // aparente.
   ANTHROPIC_TIMEOUT_MS: z.coerce.number().int().min(5000).max(600000).default(120000),
 
+  // Disjuntor de gasto: quantas análises por dia, no máximo.
+  //
+  // Não é cota, é proteção contra defeito nosso e contra um dia muito
+  // fora da curva. Deve ficar BEM acima do movimento normal — teto
+  // apertado transforma um bom dia de campanha em prospect recusado, e
+  // isso custa mais que a conta que ele evitaria.
+  IA_LIMITE_DIARIO: z.coerce.number().int().min(1).max(100000).default(60),
+
   // --- Vigia -------------------------------------------------------
   //
   // Para onde vai o alarme quando um processo automático para. Telefone
