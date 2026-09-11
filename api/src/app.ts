@@ -21,6 +21,8 @@ import { reguaRouter } from './modules/regua/regua.routes.js';
 import { mensalRouter } from './modules/mensal/mensal.routes.js';
 import { whatsappRouter } from './modules/webhooks/whatsapp.routes.js';
 import { evolutionRouter } from './modules/webhooks/evolution.routes.js';
+import { monitorRouter } from './modules/monitor/monitor.routes.js';
+import { diagnosticoPublicoRouter } from './modules/diagnosticos/publico.routes.js';
 import { metaRouter } from './modules/meta/meta.routes.js';
 import { fechamentoRouter } from './modules/mensal/fechamento.routes.js';
 import { crmRouter } from './modules/crm/crm.routes.js';
@@ -74,6 +76,12 @@ export function createApp() {
   // é o chamador. As rotas em /n8n/whatsapp continuam existindo como
   // caminho de volta.
   app.use('/api/v1/webhooks/evolution', evolutionRouter);
+  app.use('/api/v1/monitor', monitorRouter);
+
+  // Rota PÚBLICA: é o formulário do site, sem login e sem segredo.
+  // Protegida por CORS e por um limite apertado — cada chamada custa uma
+  // requisição paga ao Claude.
+  app.use('/api/v1/diagnostico', diagnosticoPublicoRouter);
 
   // Fora de /api: é um link clicado por um humano, no e-mail, e devolve
   // uma página HTML — não faz parte da API consumida pelo front.

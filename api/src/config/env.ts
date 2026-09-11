@@ -64,10 +64,108 @@ const schema = z.object({
   // segredo qualquer um criaria lead e mensagem falsos.
   EVOLUTION_WEBHOOK_TOKEN: z.string().default(''),
 
+  // --- SMTP --------------------------------------------------------
+  //
+  // As MESMAS credenciais que o n8n já usava nos fluxos de entrada. Não
+  // é servidor novo nem remetente novo: SPF, DKIM e reputação seguem
+  // iguais, e a migração não mexe em entregabilidade.
+  SMTP_HOST: z.string().default(''),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+  SMTP_USER: z.string().default(''),
+  SMTP_PASS: z.string().default(''),
+
+  EMAIL_REMETENTE: z.string().default('Business Triage <contato@businesstriage.com.br>'),
+  EMAIL_INTERNO: z.string().default('contato@businesstriage.com.br'),
+
+  // --- Claude (análise dos diagnósticos) ---------------------------
+  //
+  // Vazia por padrão: sem a chave, a geração de análise falha alto em vez
+  // de produzir relatório pela metade.
+  ANTHROPIC_API_KEY: z.string().default(''),
+
+  // O modelo que o n8n usava. Fica em variável porque trocar de modelo é
+  // decisão de custo e qualidade, não de deploy.
+  ANTHROPIC_MODEL: z.string().default('claude-sonnet-4-6'),
+
+  // O mesmo teto do n8n. Abaixo disso o relatório detalhado sai cortado —
+  // e cortado no meio de um JSON é o defeito mais chato de diagnosticar,
+  // porque parece erro de formato.
+  ANTHROPIC_MAX_TOKENS: z.coerce.number().int().min(1000).max(64000).default(16000),
+
+  // Análise longa leva tempo. Dois minutos cobre o pior caso observado
+  // com folga; abaixo disso o timeout vira falha intermitente sem causa
+  // aparente.
+  ANTHROPIC_TIMEOUT_MS: z.coerce.number().int().min(5000).max(600000).default(120000),
+
+  // --- Vigia -------------------------------------------------------
+  //
+  // Para onde vai o alarme quando um processo automático para. Telefone
+  // em dígitos, com o 55 na frente.
+  //
+  // Vazio não desliga a vigilância: o alarme cai no log em nível de
+  // erro. É pior que receber, e melhor que a impressão de estar
+  // protegido sem estar.
+  MONITOR_WHATSAPP: z.string().default(''),
+  MONITOR_INSTANCIA: z.string().default('wa_ultimo'),
+
+  // Ligar o relógio interno que roda a verificação.
+  //
+  // Desligado em desenvolvimento de propósito: cada `npm run dev` na sua
+  // máquina mandaria alarme de verdade para o seu celular.
+  MONITOR_ATIVO: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true' || v === '1'),
+
+  // De quanto em quanto tempo o vigia olha. Dez minutos é curto o
+  // bastante para você saber no mesmo turno e longo o bastante para não
+  // pesar no banco.
+  MONITOR_INTERVALO_MIN: z.coerce.number().int().min(1).max(720).default(10),
+
+  // Hora local do pulso diário de "tudo certo".
+  MONITOR_HORA_PULSO: z.coerce.number().int().min(0).max(23).default(7),
+
+  // Origens liberadas no CORS.
+  //
+  // Cada domínio listado vale também na forma com `www`, e vice-versa.
+  //
+  // Não é conveniência: é a correção de um defeito real. O site responde
+  // em `businesstriage.com.br` e em `www.businesstriage.com.br`, e o
+  // navegador exige que o cabeçalho de CORS bata com a origem da página
+  // caractere por caractere. Com só uma das duas na lista, metade dos
+  // visitantes recebe "Failed to fetch" depois de dez minutos de
+  // formulário preenchido — e nada aparece no log do servidor, porque a
+  // requisição foi processada e quem recusou foi o navegador.
+  //
+  // As duas formas são o mesmo domínio registrado, do mesmo dono. Quem
+  // confia numa confia na outra.
   CORS_ORIGINS: z
     .string()
     .default('')
-    .transform((v) => v.split(',').map((s) => s.trim()).filter(Boolean)),
+    .transform((v) => {
+      const base = v.split(',').map((s) => s.trim()).filter(Boolean);
+      const comVariantes = base.flatMap((o) => {
+        try {
+          const u = new URL(o);
+
+          // `localhost` e endereço de IP não têm forma com `www`. Gerar
+          // `www.localhost` não quebra nada, mas suja a lista — e lista
+          // suja é lista que ninguém revisa.
+          const ehNome = u.hostname.includes('.') && !/^[\d.]+$/.test(u.hostname);
+          if (!ehNome) return [o];
+
+          const par = u.hostname.startsWith('www.')
+            ? u.hostname.slice(4)
+            : `www.${u.hostname}`;
+          return [o, `${u.protocol}//${par}${u.port ? `:${u.port}` : ''}`];
+        } catch {
+          // Origem malformada passa adiante como está: quebrar a subida da
+          // API por causa de uma vírgula sobrando seria pior.
+          return [o];
+        }
+      });
+      return [...new Set(comVariantes)];
+    }),
 });
 
 const parsed = schema.safeParse(process.env);

@@ -165,21 +165,28 @@ Só agora. Na configuração de webhook da instância `wa_ultimo`:
 Pela API da Evolution, se preferir:
 
 ```bash
-APIKEY=A_APIKEY_DA_EVOLUTION
+APIKEY=$(grep '^AUTHENTICATION_API_KEY=' /opt/evolution/.env | cut -d= -f2- | tr -d '"'"'"'\r')
 SEG=$(grep '^N8N_WEBHOOK_SECRET=' /opt/finance-src/api/.env | cut -d= -f2- | tr -d '"'"'"'\r')
 
-docker exec evolution wget -qO- --method=POST \
-  --header="Content-Type: application/json" \
-  --header="apikey: $APIKEY" \
-  --body-data="{\"webhook\":{\"enabled\":true,\"url\":\"http://finance-api:3333/api/v1/webhooks/evolution/inbound\",\"headers\":{\"x-evolution-token\":\"$SEG\"},\"byEvents\":false,\"events\":[\"MESSAGES_UPSERT\"]}}" \
-  http://localhost:8080/webhook/set/wa_ultimo
+# O wget de dentro do contêiner é BusyBox: não tem --method, e --post-data
+# já obriga o POST.
+docker exec evolution sh -c "wget -qO- \
+  --header='Content-Type: application/json' \
+  --header='apikey: $APIKEY' \
+  --post-data='{\"webhook\":{\"enabled\":true,\"url\":\"http://finance-api:3333/api/v1/webhooks/evolution/inbound\",\"headers\":{\"x-evolution-token\":\"$SEG\"},\"byEvents\":false,\"events\":[\"MESSAGES_UPSERT\"]}}' \
+  http://localhost:8080/webhook/set/wa_ultimo"
 ```
 
-> **Se a sua versão da Evolution não aceitar `headers`:** ela vai mandar o
-> webhook sem o cabeçalho e a API vai responder 401. Nesse caso, gere um
-> `EVOLUTION_WEBHOOK_TOKEN` próprio e ponha o webhook atrás de uma regra
-> de rede em vez do cabeçalho — me chame antes de improvisar, porque a
-> rota é alcançável pelo domínio público e sem guarda qualquer um cria
+Confira o que ficou gravado:
+
+```bash
+docker exec evolution sh -c "wget -qO- --header='apikey: $APIKEY' http://localhost:8080/webhook/find/wa_ultimo"
+```
+
+> A v2.3.7 aceita `headers` — o `webhook/find` mostra o campo, e era a
+> única dúvida que restava. Se numa instalação futura ele for ignorado, a
+> API responde 401 e nada é gravado: não improvise tirando a guarda, que
+> a rota é alcançável pelo domínio público e sem ela qualquer um cria
 > lead falso e envenena a otimização da campanha.
 
 Em seguida, **desative o fluxo 07 no n8n** — com os dois ligados, cada
@@ -207,8 +214,17 @@ group by veredito;
 ```
 
 **Voltar atrás**, se algo não fechar: aponte o webhook da Evolution de
-volta para `https://n8n-businesstriage.com.br/webhook/whatsapp-inbound` e
-reative o fluxo 07. Nada foi apagado.
+volta para o endereço que estava lá antes:
+
+```
+https://n8n.businesstriage.com.br/webhook/whatsapp-inbound
+```
+
+e reative o fluxo 07. Nada foi apagado.
+
+> Repare no ponto em vez de hífen: `n8n.businesstriage`, não
+> `n8n-businesstriage`. Os dois domínios existem, e apontam para
+> instalações diferentes do n8n.
 
 ---
 

@@ -15,6 +15,11 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { calcularRegua, VERSAO_REGUA, type EntradaRegua } from './regua.js';
+import {
+  calcularReguaComercial,
+  VERSAO_REGUA_COMERCIAL,
+  type EntradaComercial,
+} from './regua-comercial.js';
 import { requireWebhookSecret } from '../webhooks/secret.js';
 
 export const reguaRouter = Router();
@@ -70,7 +75,38 @@ reguaRouter.post('/financeiro', (req, res) => {
   });
 });
 
+/**
+ * A régua comercial.
+ *
+ * Mesma forma da financeira, com duas diferenças que vêm do original:
+ * o protocolo leva um `C` depois do traço, e a entrada é o bloco
+ * `comercial` do formulário em vez dos quatro blocos financeiros.
+ */
+reguaRouter.post('/comercial', (req, res) => {
+  const corpo = (req.body ?? {}) as {
+    identificacao?: Record<string, unknown>;
+    comercial?: EntradaComercial;
+  };
+
+  const identificacao = corpo.identificacao ?? {};
+  const entrada = corpo.comercial ?? (corpo as EntradaComercial);
+  const resultado = calcularReguaComercial(entrada);
+
+  const base =
+    String(identificacao.cnpj ?? '00000000').replace(/\D/g, '').slice(0, 8) || '00000000';
+
+  res.json({
+    protocolo: `${base}-C${Date.now().toString(36).toUpperCase()}`,
+    recebido_em: new Date().toISOString(),
+    identificacao,
+    entrada,
+    ...resultado,
+  });
+});
+
 /** Qual régua está no ar. Serve para conferir um deploy sem calcular nada. */
 reguaRouter.get('/versao', (_req, res) => {
-  res.json({ data: { versao: VERSAO_REGUA } });
+  res.json({
+    data: { versao: VERSAO_REGUA, versao_comercial: VERSAO_REGUA_COMERCIAL },
+  });
 });
