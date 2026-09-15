@@ -58,6 +58,19 @@ só sem proteção contra um defeito que consuma sem parar.
 
 ## Passo 1 — As variáveis novas na API
 
+> **Este passo roda UMA vez.** O `>>` acrescenta ao fim do arquivo, e o
+> dotenv usa a última ocorrência de cada chave. Rodar de novo sobrescreve
+> valores já preenchidos com as linhas vazias do modelo — sem erro
+> nenhum, e o sintoma aparece só quando o e-mail deixa de sair.
+>
+> Antes de colar, confira se já não está lá:
+>
+> ```bash
+> grep -c ^SMTP_HOST= /opt/finance-src/api/.env
+> ```
+>
+> Se der 1 ou mais, pule este passo e edite só o que faltar.
+
 ```bash
 cat >> /opt/finance-src/api/.env <<'EOF'
 ANTHROPIC_API_KEY=sk-ant-COLE_A_CHAVE

@@ -105,6 +105,23 @@ const schema = z.object({
   // isso custa mais que a conta que ele evitaria.
   IA_LIMITE_DIARIO: z.coerce.number().int().min(1).max(100000).default(60),
 
+  // --- Envio das 8h ------------------------------------------------
+  //
+  // Liga o relógio que esvazia a fila de diagnósticos financeiros.
+  //
+  // Desligado por padrão pelo mesmo motivo do vigia: um `npm run dev` na
+  // sua máquina mandaria relatório de verdade para prospect de verdade.
+  // Em produção precisa estar explicitamente `true` — e o vigia cobra se
+  // alguém esquecer, porque `diagnosticos.envio` está no catálogo dele.
+  DIAGNOSTICOS_ENVIO_ATIVO: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true' || v === '1'),
+
+  // Hora local da janela. Muda junto com o texto do e-mail de
+  // confirmação, que promete "pela manhã" — não é só um número.
+  DIAGNOSTICOS_HORA_ENVIO: z.coerce.number().int().min(0).max(23).default(8),
+
   // --- Vigia -------------------------------------------------------
   //
   // Para onde vai o alarme quando um processo automático para. Telefone
