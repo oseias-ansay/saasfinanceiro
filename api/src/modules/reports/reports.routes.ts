@@ -18,6 +18,22 @@ const periodSchema = z.object({
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 
+const contasSchema = z.object({
+  natureza: z.enum(['a_receber', 'a_pagar']),
+  /**
+   * `vencido` primeiro é o padrão de propósito: a tela existe para
+   * decidir quem cobrar hoje, e quem está em dia não é decisão nenhuma.
+   * `vencimento` serve para a outra pergunta — o que vem pela frente.
+   */
+  ordenar_por: z.enum(['vencido', 'total', 'vencimento', 'atraso']).default('vencido'),
+  limite: z.coerce.number().int().min(1).max(200).default(50),
+  /** Esconde quem não tem nada vencido. Útil na tela de cobrança. */
+  so_vencidos: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+});
+
 /** DRE mensal + variação percentual mês a mês + acumulado do período. */
 reportsRouter.get('/dre', validate(periodSchema, 'query'), async (req, res, next) => {
   try {
@@ -110,6 +126,90 @@ reportsRouter.get('/cashflow-projection', async (req, res, next) => {
       saldo_atual: Number(rows[0]?.saldo_atual ?? 0),
       dias: rows,
       resumo: { d30: janela(30), d60: janela(60), d90: janela(90) },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * Contas a pagar ou a receber, consolidadas por pessoa.
+ *
+ * Passa pela API, e não direto pelo supabase-js, porque devolve DUAS
+ * consultas casadas: o resumo do cabeçalho e a lista paginada. Se o front
+ * somasse a lista para montar o cabeçalho, o total mudaria a cada página
+ * — e total que muda ao navegar é o tipo de defeito que faz o usuário
+ * parar de confiar em todos os outros números da tela.
+ */
+reportsRouter.get('/contas', validate(contasSchema, 'query'), async (req, res, next) => {
+  try {
+    const { natureza, ordenar_por, limite, so_vencidos } = req.query as unknown as {
+      natureza: 'a_receber' | 'a_pagar';
+      ordenar_por: 'vencido' | 'total' | 'vencimento' | 'atraso';
+      limite: number;
+      so_vencidos: boolean;
+    };
+
+    const coluna = {
+      vencido: 'total_vencido',
+      total: 'total_aberto',
+      vencimento: 'proximo_vencimento',
+      atraso: 'dias_atraso_max',
+    }[ordenar_por];
+
+    // `vencimento` cresce para o futuro: o mais próximo é o menor. As
+    // outras três são "quanto maior, mais urgente".
+    const crescente = ordenar_por === 'vencimento';
+
+    let consulta = req.supabase
+      .from('vw_contas_por_pessoa')
+      .select('*')
+      .eq('tenant_id', req.tenantId!)
+      .eq('natureza', natureza);
+
+    if (so_vencidos) consulta = consulta.gt('total_vencido', 0);
+
+    const [pessoas, resumo] = await Promise.all([
+      consulta
+        .order(coluna, { ascending: crescente, nullsFirst: false })
+        .limit(limite),
+      req.supabase
+        .from('vw_contas_resumo')
+        .select('*')
+        .eq('tenant_id', req.tenantId!)
+        .eq('natureza', natureza)
+        .maybeSingle(),
+    ]);
+
+    if (pessoas.error) throw fromPostgrest(pessoas.error);
+    if (resumo.error) throw fromPostgrest(resumo.error);
+
+    // Anotação explícita: com o stub de tipos, `data` é `any`. Some quando
+    // os tipos reais do banco forem gerados.
+    const linhas: any[] = (pessoas.data ?? []) as any[];
+    const cabecalho: any = resumo.data ?? null;
+
+    res.json({
+      natureza,
+      // Carteira vazia não é erro nem ausência de dados: é uma resposta,
+      // e o front precisa poder mostrá-la com zeros em vez de esqueleto
+      // de carregamento eterno.
+      resumo: cabecalho ?? {
+        total_aberto: 0,
+        titulos_abertos: 0,
+        pessoas: 0,
+        total_vencido: 0,
+        titulos_vencidos: 0,
+        vence_hoje: 0,
+        vence_7d: 0,
+        vence_30d: 0,
+        pct_vencido: null,
+        sem_pessoa_informada: 0,
+      },
+      // `exibidas` e o total de pessoas do resumo permitem ao front dizer
+      // "50 de 214" sem uma terceira consulta.
+      exibidas: linhas.length,
+      pessoas: linhas,
     });
   } catch (e) {
     next(e);

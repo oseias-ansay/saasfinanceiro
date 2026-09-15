@@ -937,6 +937,49 @@ export type Database = {
           },
         ]
       }
+      vw_contas_por_pessoa: {
+        Row: {
+          a_vencer_30d: number | null
+          a_vencer_31_60: number | null
+          a_vencer_mais_60: number | null
+          contato_email: string | null
+          contato_telefone: string | null
+          dias_atraso_max: number | null
+          dias_atraso_medio: number | null
+          documento: string | null
+          entity_id: string | null
+          natureza: string | null
+          pessoa: string | null
+          proximo_vencimento: string | null
+          tenant_id: string | null
+          tipo_pessoa: string | null
+          titulos_abertos: number | null
+          titulos_vencidos: number | null
+          total_aberto: number | null
+          total_vencido: number | null
+          vencido_31_60: number | null
+          vencido_ate_30: number | null
+          vencido_mais_60: number | null
+        }
+        Relationships: []
+      }
+      vw_contas_resumo: {
+        Row: {
+          natureza: string | null
+          pct_vencido: number | null
+          pessoas: number | null
+          sem_pessoa_informada: number | null
+          tenant_id: string | null
+          titulos_abertos: number | null
+          titulos_vencidos: number | null
+          total_aberto: number | null
+          total_vencido: number | null
+          vence_30d: number | null
+          vence_7d: number | null
+          vence_hoje: number | null
+        }
+        Relationships: []
+      }
       vw_dashboard_kpis: {
         Row: {
           pagar_30d: number | null
