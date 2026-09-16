@@ -17,6 +17,31 @@ As perguntas que continuam em aberto estão marcadas como tal.
 | **1.3.1** | Página pública do consultor por subdomínio, painel próprio e tela de gestão da rede | **No ar** |
 | **1.4.0** | CRM rastreável — funil, métricas e CAC | **No ar** · vendido como contrato anual à parte |
 | **1.4.1** | Meta Ads nos dois sentidos: verba entrando, conversões saindo | Planejada · depende de revisão da Meta |
+| **2.0.0** | **Módulo Contábil** — escrituração em partidas dobradas a partir dos lançamentos que o cliente já faz, com homologação de contador com CRC | Em estudo · ver `CONTABILIDADE.md` |
+
+**Sobre o 2.0.0.** É o único item desta tabela que ganha número de versão
+maior, e não por capricho: os módulos essenciais dele somados são
+comparáveis em esforço a tudo que existe hoje na plataforma. Não é uma
+funcionalidade a mais no financeiro — é um segundo produto compartilhando
+a mesma base de dados.
+
+A fronteira técnica é uma só: hoje um lançamento é uma linha com uma
+categoria, e contabilidade exige duas contas com sinais opostos. O sistema
+registra metade de cada fato. O que salva o projeto de ser refundação é
+`transactions` já separar `competence_date` de `paid_date` — competência e
+caixa em campos distintos é o acerto mais caro de corrigir depois, e já
+está feito.
+
+Nasce como **recurso desligado por padrão**, habilitado cliente a cliente
+por `tenant_recursos`, como o CRM. Provavelmente também como add-on com
+contrato, e não como degrau de plano: o contador revisa todo mês, então há
+custo humano recorrente do outro lado — diferente do diagnóstico mensal,
+que escala sozinho.
+
+Pergunta em aberto, e ela precede o código: **escrituração própria ou
+parceria com escritórios?** No primeiro caso a responsabilidade técnica é
+sua; no segundo, você vende a ferramenta ao escritório. São produtos
+diferentes, com margens e riscos diferentes.
 
 **Os planos, e por que o CRM saiu deles.** A escada comercial ficou assim:
 
