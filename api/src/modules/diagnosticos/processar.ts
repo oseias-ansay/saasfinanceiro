@@ -36,6 +36,22 @@ import type { AnaliseComercial, AnaliseFinanceira } from './analise.js';
 
 export type TipoDiagnostico = 'financeiro' | 'comercial';
 
+/**
+ * Quem escreve o relatório.
+ *
+ * `ia` chama o modelo: texto que cruza indicadores, lê o campo livre do
+ * cliente e adapta ao setor. Custa cerca de R$ 0,87 e leva de dois a
+ * cinco minutos.
+ *
+ * `codigo` monta o texto a partir dos alertas da régua, em
+ * milissegundos e de graça. O esqueleto é compartilhado, mas toda frase
+ * carrega um número do cliente — ver `redator.ts`.
+ *
+ * A régua, o score e os indicadores são idênticos nos dois casos: eles
+ * nunca dependeram de IA. O que muda é só a redação.
+ */
+export type MotorAnalise = 'ia' | 'codigo';
+
 /** Quando o relatório sai. Ver o cabeçalho. */
 export const POLITICA_ENVIO: Record<TipoDiagnostico, 'imediato' | 'janela'> = {
   comercial: 'imediato',
@@ -72,6 +88,19 @@ export interface Dependencias {
     tipo: TipoDiagnostico,
     prompt: string,
   ) => Promise<AnaliseFinanceira | AnaliseComercial>;
+
+  /**
+   * Escreve a análise sem modelo, a partir da régua já calculada.
+   *
+   * Recebe o resultado da régua, e não a entrada do formulário, porque é
+   * exatamente isso que ele usa: alertas, pilares e score. Passar a
+   * entrada crua obrigaria a recalcular — e duas contas para o mesmo
+   * número é como elas divergem.
+   */
+  redigir: (
+    tipo: TipoDiagnostico,
+    regua: ResultadoRegua | ResultadoComercial,
+  ) => AnaliseFinanceira | AnaliseComercial;
 
   /** Monta o prompt a partir da régua. Separado para poder ser conferido. */
   montarPrompt: (
@@ -152,6 +181,12 @@ export async function processarDiagnostico(
    * ver na tela um protocolo que não existe em lugar nenhum.
    */
   protocolo?: string,
+  /**
+   * Quem escreve o relatório. O padrão continua sendo a IA para não
+   * mudar o comportamento de quem já está em produção — a troca é
+   * explícita, por chamada.
+   */
+  motor: MotorAnalise = 'ia',
 ): Promise<ResultadoDiagnostico> {
   const avisar = dep.aviso ?? (() => {});
   const politica = POLITICA_ENVIO[tipo];
@@ -188,7 +223,14 @@ export async function processarDiagnostico(
   // Também sem try, e pelo mesmo motivo: o relatório é a análise. Um PDF
   // com score e sem texto não é um produto pela metade, é um produto
   // errado.
-  const analise = await dep.analisar(tipo, dep.montarPrompt(tipo, lead, entrada, regua));
+  //
+  // No motor `codigo` não há chamada de rede, nem custo, nem chance de
+  // falhar por formato — a única forma de erro aqui é defeito nosso, e
+  // ele aparece nos testes antes de aparecer no cliente.
+  const analise =
+    motor === 'codigo'
+      ? dep.redigir(tipo, regua)
+      : await dep.analisar(tipo, dep.montarPrompt(tipo, lead, entrada, regua));
 
   // ---- 3. Gravar -----------------------------------------------------
   //

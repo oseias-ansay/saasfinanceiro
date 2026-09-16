@@ -23,6 +23,7 @@ import {
   type AnaliseFinanceira,
 } from './analise.js';
 import { gravarDiagnostico, marcarStatus, obterPdf } from './diagnosticos.service.js';
+import { redigirComercial, redigirFinanceiro } from './redator.js';
 import { registrarConsumo, reservarChamada } from './orcamento.js';
 import { esc } from './template.js';
 import type { Dependencias, TipoDiagnostico } from './processar.js';
@@ -67,6 +68,11 @@ export const dependenciasReais: Dependencias = {
 
     return analise as AnaliseFinanceira | AnaliseComercial;
   },
+
+  redigir: (tipo, regua) =>
+    tipo === 'comercial'
+      ? redigirComercial(regua as ResultadoComercial)
+      : redigirFinanceiro(regua as ResultadoRegua),
 
   gravar: async (dados) => {
     const g = await gravarDiagnostico(dados);

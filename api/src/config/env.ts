@@ -105,6 +105,23 @@ const schema = z.object({
   // isso custa mais que a conta que ele evitaria.
   IA_LIMITE_DIARIO: z.coerce.number().int().min(1).max(100000).default(60),
 
+  // --- Quem escreve o relatório ------------------------------------
+  //
+  // `ia` chama o Claude: texto que cruza indicadores, lê o campo livre
+  // do cliente e adapta ao setor. Custa cerca de R$ 0,87 por relatório e
+  // leva de dois a cinco minutos.
+  //
+  // `codigo` monta o texto a partir dos alertas da régua, em
+  // milissegundos e de graça, com toda frase carregando um número do
+  // cliente. A régua, o score e os indicadores são idênticos nos dois:
+  // eles nunca dependeram de IA.
+  //
+  // O padrão continua `ia` para não mudar o que já está em produção. Na
+  // rota pública, `?motor=codigo` sobrescreve — é assim que o
+  // diagnóstico de evento sai sem custo enquanto o do lead qualificado
+  // continua com a leitura fina.
+  MOTOR_ANALISE: z.enum(['ia', 'codigo']).default('ia'),
+
   // --- Envio das 8h ------------------------------------------------
   //
   // Liga o relógio que esvazia a fila de diagnósticos financeiros.

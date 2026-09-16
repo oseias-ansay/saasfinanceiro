@@ -60,6 +60,10 @@ function deps(over: Partial<Dependencias> = {}) {
       ordem.push('analisar');
       return ANALISE;
     },
+    redigir: () => {
+      ordem.push('redigir');
+      return ANALISE;
+    },
     gravar: async () => {
       ordem.push('gravar');
       return {
@@ -220,6 +224,25 @@ describe('o que NÃO pode ser engolido', () => {
       },
     });
     await assert.rejects(() => processarDiagnostico('comercial', LEAD, {}, dep), /entrada impossível/);
+  });
+
+  it('motor `codigo` não chama a IA', async () => {
+    // A garantia de que o diagnóstico de evento não gera fatura: se um
+    // dia `analisar` voltar a ser chamado no motor de código, a conta
+    // aparece no fim do mês e não no teste.
+    const { dep, ordem } = deps();
+    await processarDiagnostico('comercial', LEAD, {}, dep, undefined, 'codigo');
+
+    assert.equal(ordem.includes('analisar'), false, 'A IA foi chamada no motor de código');
+    assert.equal(ordem.includes('redigir'), true);
+  });
+
+  it('motor `ia` continua sendo o padrão', async () => {
+    const { dep, ordem } = deps();
+    await processarDiagnostico('comercial', LEAD, {}, dep);
+
+    assert.equal(ordem.includes('analisar'), true);
+    assert.equal(ordem.includes('redigir'), false);
   });
 
   it('falha na análise interrompe — relatório sem texto é produto errado', async () => {

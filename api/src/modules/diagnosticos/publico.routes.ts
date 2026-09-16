@@ -38,7 +38,13 @@ import { calcularRegua } from '../regua/regua.js';
 import { calcularReguaComercial } from '../regua/regua-comercial.js';
 import { gerarProtocolo } from './diagnosticos.service.js';
 import { dependenciasReais } from './dependencias.js';
-import { processarDiagnostico, type DadosLead, type TipoDiagnostico } from './processar.js';
+import {
+  processarDiagnostico,
+  type DadosLead,
+  type MotorAnalise,
+  type TipoDiagnostico,
+} from './processar.js';
+import { env } from '../../config/env.js';
 
 export const diagnosticoPublicoRouter = Router();
 
@@ -108,6 +114,13 @@ function tratar(tipo: TipoDiagnostico) {
       const body = parsed.data as z.infer<typeof corpoFinanceiro> & { comercial?: Record<string, unknown> };
       const lead: DadosLead = body.identificacao;
 
+      // `?motor=codigo` escreve o relatório sem IA: instantâneo e sem
+      // custo. É o que a landing page de evento usa, onde o volume é
+      // alto e o público não foi qualificado. Qualquer outro valor cai no
+      // padrão do `.env` — texto inválido não vira erro, vira o
+      // comportamento de sempre.
+      const motor: MotorAnalise = req.query.motor === 'codigo' ? 'codigo' : env.MOTOR_ANALISE;
+
       const entrada: Record<string, unknown> =
         tipo === 'comercial'
           ? (body.comercial ?? {})
@@ -150,10 +163,17 @@ function tratar(tipo: TipoDiagnostico) {
       // alguém rodar este código em outro contexto.
       void comRegistro(`diagnostico.${tipo}`, async () => {
         try {
-          const r = await processarDiagnostico(tipo, lead, entrada, dependenciasReais, protocolo);
+          const r = await processarDiagnostico(
+            tipo,
+            lead,
+            entrada,
+            dependenciasReais,
+            protocolo,
+            motor,
+          );
 
           logger.info(
-            { protocolo, tipo, score, falhas: r.falhas.length, enviado: r.relatorio_enviado },
+            { protocolo, tipo, motor, score, falhas: r.falhas.length, enviado: r.relatorio_enviado },
             'Diagnóstico processado',
           );
 
