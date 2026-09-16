@@ -13,6 +13,7 @@ import { requireAuth, requireTenant, requireRole } from '../../middlewares/auth.
 import { validate } from '../../middlewares/validate.js';
 import { fromPostgrest, notFound } from '../../lib/errors.js';
 import { calcularEquilibrio, type ProdutoEntrada } from './equilibrio.js';
+import { calcularGiro } from './giro.js';
 
 export const equilibrioRouter = Router();
 equilibrioRouter.use(requireAuth, requireTenant);
@@ -147,10 +148,72 @@ equilibrioRouter.delete('/custos-fixos/:id', ESCREVE, async (req, res, next) => 
 });
 
 /* ==================================================================== */
-/* A tela inteira numa chamada                                           */
+/* Custos fixos: medição + revisão                                       */
 /* ==================================================================== */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+/**
+ * Junta o que foi medido nos lançamentos com o que o usuário revisou.
+ *
+ * Compartilhada entre a tela de margem de contribuição e a de capital de
+ * giro: as duas fazem a mesma pergunta — "quanto custa manter esta
+ * empresa aberta?" — e duas montagens separadas divergiriam na primeira
+ * vez que alguém mexesse numa delas.
+ *
+ * Linha de revisão ausente significa "aceito a medição". É o que faz as
+ * duas telas continuarem corretas sozinhas quando os lançamentos mudam.
+ */
+export function montarCustosFixos(medidos: any[], revisoes: any[]) {
+  const porCategoria = new Map(
+    revisoes.filter((r) => r.category_id).map((r) => [r.category_id, r]),
+  );
+
+  const deCategorias = medidos.map((m) => {
+    const rev = porCategoria.get(m.category_id);
+    return {
+      id: rev?.id ?? null,
+      category_id: m.category_id,
+      descricao: m.categoria,
+      medido: Number(m.media_mensal ?? 0),
+      meses: m.meses,
+      valor_mensal:
+        rev?.valor_mensal !== null && rev?.valor_mensal !== undefined
+          ? Number(rev.valor_mensal)
+          : Number(m.media_mensal ?? 0),
+      incluir: rev?.incluir ?? true,
+      origem: 'lancamentos' as const,
+    };
+  });
+
+  // Itens que o usuário acrescentou e não têm lançamento — pró-labore
+  // não registrado é o caso comum.
+  const avulsos = revisoes
+    .filter((r) => !r.category_id)
+    .map((r) => ({
+      id: r.id,
+      category_id: null,
+      descricao: r.descricao,
+      medido: null,
+      meses: null,
+      valor_mensal: Number(r.valor_mensal ?? 0),
+      incluir: r.incluir,
+      origem: 'manual' as const,
+    }));
+
+  const itens = [...deCategorias, ...avulsos];
+
+  return {
+    itens,
+    total:
+      Math.round(itens.filter((c) => c.incluir).reduce((s, c) => s + c.valor_mensal, 0) * 100) /
+      100,
+  };
+}
+
+/* ==================================================================== */
+/* A tela inteira numa chamada                                           */
+/* ==================================================================== */
 
 equilibrioRouter.get('/', async (req, res, next) => {
   try {
@@ -183,48 +246,7 @@ equilibrioRouter.get('/', async (req, res, next) => {
     const listaMedidos: any[] = (medidos.data ?? []) as any[];
     const mesesDre: any[] = (dre.data ?? []) as any[];
 
-    const revisaoPorCategoria = new Map(
-      listaRevisoes.filter((r) => r.category_id).map((r) => [r.category_id, r]),
-    );
-
-    // Cada categoria medida, com a revisão do usuário aplicada por cima.
-    // Linha de revisão ausente significa "aceito a medição" — é o que faz
-    // a tela continuar correta sozinha quando os lançamentos mudam.
-    const custosFixos = listaMedidos.map((m) => {
-      const rev = revisaoPorCategoria.get(m.category_id);
-      return {
-        id: rev?.id ?? null,
-        category_id: m.category_id,
-        descricao: m.categoria,
-        medido: Number(m.media_mensal ?? 0),
-        meses: m.meses,
-        valor_mensal: rev?.valor_mensal !== null && rev?.valor_mensal !== undefined
-          ? Number(rev.valor_mensal)
-          : Number(m.media_mensal ?? 0),
-        incluir: rev?.incluir ?? true,
-        origem: 'lancamentos' as const,
-      };
-    });
-
-    // Itens que o usuário acrescentou e não têm lançamento — pró-labore
-    // não registrado é o caso comum.
-    const avulsos = listaRevisoes
-      .filter((r) => !r.category_id)
-      .map((r) => ({
-        id: r.id,
-        category_id: null,
-        descricao: r.descricao,
-        medido: null,
-        meses: null,
-        valor_mensal: Number(r.valor_mensal ?? 0),
-        incluir: r.incluir,
-        origem: 'manual' as const,
-      }));
-
-    const todos = [...custosFixos, ...avulsos];
-    const totalFixos = todos
-      .filter((c) => c.incluir)
-      .reduce((s, c) => s + c.valor_mensal, 0);
+    const { itens: todos, total: totalFixos } = montarCustosFixos(listaMedidos, listaRevisoes);
 
     const faturamentoAtual = mesesDre.length
       ? mesesDre.reduce((s, m) => s + Number(m.receita_bruta ?? 0), 0) / mesesDre.length
@@ -285,6 +307,114 @@ const simulacaoSchema = z.object({
 equilibrioRouter.post('/simular', validate(simulacaoSchema), async (req, res, next) => {
   try {
     res.json(calcularEquilibrio(req.body as z.infer<typeof simulacaoSchema>));
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ==================================================================== */
+/* Capital de giro                                                       */
+/* ==================================================================== */
+
+/**
+ * A tela de NCG, numa chamada.
+ *
+ * Compartilha `mix_custos_fixos` com a ferramenta de margem de
+ * contribuição de propósito: é a mesma pergunta — "quanto custa manter
+ * esta empresa aberta?" — e duas listas separadas divergiriam na
+ * primeira vez que alguém reajustasse o aluguel em uma só.
+ *
+ * PMR e PMP vêm medidos de `vw_prazos_medios`, ponderados por valor
+ * sobre lançamentos liquidados. PME é digitado, porque a plataforma não
+ * controla estoque — e inventar um número aqui subestimaria a
+ * necessidade de caixa, que é o erro perigoso desta conta.
+ */
+equilibrioRouter.get('/giro', async (req, res, next) => {
+  try {
+    const tenant = req.tenantId!;
+    const pmeDias = Number(req.query.pme ?? 0) || 0;
+
+    const [revisoes, medidos, prazos, contas, kpis, dre] = await Promise.all([
+      req.supabase.from('mix_custos_fixos').select('*').eq('tenant_id', tenant),
+      req.supabase.rpc('fn_custos_fixos_medidos', { p_tenant: tenant }),
+      req.supabase
+        .from('vw_prazos_medios')
+        .select('competencia, pmr_dias, pmp_dias')
+        .eq('tenant_id', tenant)
+        .order('competencia', { ascending: false })
+        .limit(3),
+      req.supabase
+        .from('vw_contas_resumo')
+        .select('natureza, total_aberto')
+        .eq('tenant_id', tenant),
+      req.supabase
+        .from('vw_dashboard_kpis')
+        .select('saldo_hoje')
+        .eq('tenant_id', tenant)
+        .maybeSingle(),
+      req.supabase
+        .from('vw_dre_monthly')
+        .select('competencia, custos_variaveis')
+        .eq('tenant_id', tenant)
+        .lt('competencia', `${new Date().toISOString().slice(0, 7)}-01`)
+        .order('competencia', { ascending: false })
+        .limit(3),
+    ]);
+
+    for (const r of [revisoes, medidos, prazos, contas, kpis, dre]) {
+      if (r.error) throw fromPostgrest(r.error);
+    }
+
+    const { itens, total } = montarCustosFixos(
+      (medidos.data ?? []) as any[],
+      (revisoes.data ?? []) as any[],
+    );
+
+    const linhasPrazo: any[] = (prazos.data ?? []) as any[];
+    const media = (campo: string) =>
+      linhasPrazo.length
+        ? Math.round(
+            linhasPrazo.reduce((s, l) => s + Number(l?.[campo] ?? 0), 0) / linhasPrazo.length,
+          )
+        : 0;
+
+    const linhasConta: any[] = (contas.data ?? []) as any[];
+    const aberto = (nat: string) =>
+      Number(linhasConta.find((c) => c.natureza === nat)?.total_aberto ?? 0);
+
+    const mesesDre: any[] = (dre.data ?? []) as any[];
+    const variaveis = mesesDre.length
+      ? mesesDre.reduce((s, m) => s + Number(m.custos_variaveis ?? 0), 0) / mesesDre.length
+      : 0;
+
+    const entrada = {
+      despesasFixasMensais: total,
+      custosVariaveisMensais: Math.round(variaveis * 100) / 100,
+      pmrDias: Number(req.query.pmr ?? media('pmr_dias')) || 0,
+      pmpDias: Number(req.query.pmp ?? media('pmp_dias')) || 0,
+      pmeDias,
+      contasAReceber: aberto('a_receber'),
+      contasAPagar: aberto('a_pagar'),
+      estoque: Number(req.query.estoque ?? 0) || 0,
+      caixaDisponivel: Number((kpis.data as any)?.saldo_hoje ?? 0),
+    };
+
+    res.json({
+      custos_fixos: itens,
+      total_custos_fixos: total,
+      // O medido vai junto do usado: quando o usuário sobrescreve um
+      // prazo pela query, a tela precisa poder dizer "o seu histórico
+      // mostra outro número".
+      medido: {
+        pmr_dias: media('pmr_dias'),
+        pmp_dias: media('pmp_dias'),
+        meses_prazos: linhasPrazo.length,
+        custos_variaveis_mensais: entrada.custosVariaveisMensais,
+        meses_dre: mesesDre.length,
+      },
+      entrada,
+      resultado: calcularGiro(entrada),
+    });
   } catch (e) {
     next(e);
   }

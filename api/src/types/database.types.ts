@@ -1041,6 +1041,17 @@ export type Database = {
         }
         Relationships: []
       }
+      vw_prazos_medios: {
+        Row: {
+          competencia: string | null
+          pmp_dias: number | null
+          pmr_dias: number | null
+          tenant_id: string | null
+          titulos_pagos: number | null
+          titulos_recebidos: number | null
+        }
+        Relationships: []
+      }
       vw_contas_resumo: {
         Row: {
           natureza: string | null
