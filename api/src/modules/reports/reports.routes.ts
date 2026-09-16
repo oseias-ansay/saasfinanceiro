@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { requireAuth, requireTenant } from '../../middlewares/auth.js';
 import { validate } from '../../middlewares/validate.js';
 import { fromPostgrest } from '../../lib/errors.js';
+import { calcularPreco } from '../precificacao/precificacao.js';
 
 export const reportsRouter = Router();
 reportsRouter.use(requireAuth, requireTenant);
@@ -211,6 +212,96 @@ reportsRouter.get('/contas', validate(contasSchema, 'query'), async (req, res, n
       exibidas: linhas.length,
       pessoas: linhas,
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ==================================================================== */
+/* Precificação                                                          */
+/* ==================================================================== */
+
+/**
+ * Os percentuais REAIS da empresa, tirados dos lançamentos.
+ *
+ * É o que separa esta tela de uma planilha: o rateio de despesa fixa e a
+ * carga de imposto não são chutados, são medidos. Chutados, saem sempre
+ * baixos — ninguém lembra do contador, do software e do seguro ao estimar
+ * "quanto custa manter a empresa aberta".
+ *
+ * Usa a média dos últimos meses fechados, e não o mês corrente: um mês
+ * pela metade tem despesa fixa cheia e faturamento parcial, o que
+ * inflaria o rateio.
+ */
+reportsRouter.get('/precificacao/base', async (req, res, next) => {
+  try {
+    const hoje = new Date();
+    // Primeiro dia do mês corrente: tudo antes disso é mês fechado.
+    const primeiroDoMes = `${hoje.getUTCFullYear()}-${String(hoje.getUTCMonth() + 1).padStart(2, '0')}-01`;
+
+    const { data, error } = await req.supabase
+      .from('vw_dre_monthly')
+      .select('competencia, receita_bruta, deducoes, custos_variaveis, despesas_fixas')
+      .eq('tenant_id', req.tenantId!)
+      .lt('competencia', primeiroDoMes)
+      .order('competencia', { ascending: false })
+      .limit(3);
+
+    if (error) throw fromPostgrest(error);
+
+    const meses: any[] = (data ?? []) as any[];
+    const media = (campo: string) =>
+      meses.length ? meses.reduce((s, m) => s + Number(m?.[campo] ?? 0), 0) / meses.length : 0;
+
+    const faturamento = media('receita_bruta');
+    const fixas = media('despesas_fixas');
+    const pct = (v: number) =>
+      faturamento > 0 ? Math.round((v / faturamento) * 10000) / 100 : null;
+
+    res.json({
+      // Sem meses fechados não há o que medir. O front mostra os campos em
+      // branco e o usuário digita — melhor que oferecer zero como se
+      // fosse medição.
+      tem_dados: meses.length > 0,
+      meses_considerados: meses.length,
+      competencias: meses.map((m) => m.competencia),
+
+      faturamento_medio: Math.round(faturamento * 100) / 100,
+      despesas_fixas_mensais: Math.round(fixas * 100) / 100,
+
+      sugerido: {
+        impostos_pct: pct(media('deducoes')),
+        outras_variaveis_pct: pct(media('custos_variaveis')),
+        despesas_fixas_pct: pct(fixas),
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const precoSchema = z.object({
+  custoDireto: z.coerce.number(),
+  impostosPct: z.coerce.number().default(0),
+  comissaoPct: z.coerce.number().default(0),
+  outrasVariaveisPct: z.coerce.number().default(0),
+  despesasFixasPct: z.coerce.number().default(0),
+  margemPct: z.coerce.number().default(0),
+  despesasFixasMensais: z.coerce.number().nullish(),
+  precoPraticado: z.coerce.number().nullish(),
+});
+
+/**
+ * O cálculo mora na API, e não no navegador, por uma razão só: aqui ele
+ * tem teste. O front não tem test runner, e fórmula de preço errada é o
+ * defeito que ninguém percebe — o número sai plausível e a margem some
+ * no fim do mês.
+ *
+ * Não toca no banco. É função pura atrás de uma rota.
+ */
+reportsRouter.post('/precificacao', validate(precoSchema), async (req, res, next) => {
+  try {
+    res.json(calcularPreco(req.body as z.infer<typeof precoSchema>));
   } catch (e) {
     next(e);
   }

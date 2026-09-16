@@ -301,6 +301,81 @@ export type Database = {
           },
         ]
       }
+      mix_produtos: {
+        Row: {
+          created_at: string
+          custo_direto: number
+          id: string
+          is_active: boolean
+          nome: string
+          ordem: number
+          participacao_pct: number
+          preco: number
+          tenant_id: string
+          updated_at: string
+          variaveis_pct: number
+        }
+        Insert: {
+          created_at?: string
+          custo_direto?: number
+          id?: string
+          is_active?: boolean
+          nome: string
+          ordem?: number
+          participacao_pct?: number
+          preco: number
+          tenant_id: string
+          updated_at?: string
+          variaveis_pct?: number
+        }
+        Update: {
+          created_at?: string
+          custo_direto?: number
+          id?: string
+          is_active?: boolean
+          nome?: string
+          ordem?: number
+          participacao_pct?: number
+          preco?: number
+          tenant_id?: string
+          updated_at?: string
+          variaveis_pct?: number
+        }
+        Relationships: []
+      }
+      mix_custos_fixos: {
+        Row: {
+          category_id: string | null
+          created_at: string
+          descricao: string | null
+          id: string
+          incluir: boolean
+          tenant_id: string
+          updated_at: string
+          valor_mensal: number | null
+        }
+        Insert: {
+          category_id?: string | null
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          incluir?: boolean
+          tenant_id: string
+          updated_at?: string
+          valor_mensal?: number | null
+        }
+        Update: {
+          category_id?: string | null
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          incluir?: boolean
+          tenant_id?: string
+          updated_at?: string
+          valor_mensal?: number | null
+        }
+        Relationships: []
+      }
       cost_centers: {
         Row: {
           created_at: string
@@ -1227,6 +1302,15 @@ export type Database = {
     }
     Functions: {
       auth_tenant_ids: { Args: never; Returns: string[] }
+      fn_custos_fixos_medidos: {
+        Args: { p_tenant: string }
+        Returns: {
+          category_id: string
+          categoria: string
+          media_mensal: number
+          meses: number
+        }[]
+      }
       can_write_tenant: { Args: { p_tenant_id: string }; Returns: boolean }
       fn_add_frequency: {
         Args: {

@@ -1,0 +1,224 @@
+/**
+ * Testes do ponto de equilíbrio com mix de produtos.
+ *
+ * O primeiro grupo trava a diferença entre média simples e média
+ * ponderada, que é o erro que este módulo existe para eliminar. Os
+ * números foram conferidos à mão.
+ */
+
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { calcularEquilibrio, type ProdutoEntrada } from './equilibrio.js';
+
+/** 80% do faturamento num item de 20% de MC. */
+const magro: ProdutoEntrada = {
+  nome: 'Item magro',
+  preco: 100,
+  custoDireto: 80,
+  variaveisPct: 0,
+  participacaoPct: 80,
+};
+
+/** 20% do faturamento num item de 60% de MC. */
+const gordo: ProdutoEntrada = {
+  nome: 'Item gordo',
+  preco: 100,
+  custoDireto: 40,
+  variaveisPct: 0,
+  participacaoPct: 20,
+};
+
+describe('a média ponderada', () => {
+  it('não é a média simples das margens', () => {
+    const r = calcularEquilibrio({ produtos: [magro, gordo], custosFixosMensais: 20_000 });
+
+    // 0,8×20 + 0,2×60 = 28. A média simples daria 40.
+    assert.equal(r.indiceMargemContribuicao, 28);
+    assert.notEqual(r.indiceMargemContribuicao, 40);
+  });
+
+  it('e o ponto de equilíbrio muda junto', () => {
+    const r = calcularEquilibrio({ produtos: [magro, gordo], custosFixosMensais: 20_000 });
+
+    // 20.000 / 0,28 = 71.428,57. Com 40% daria 50.000 — R$ 21 mil de
+    // diferença, que é a distância entre fechar no azul e no vermelho.
+    assert.equal(r.pontoEquilibrioFaturamento, 71_428.57);
+  });
+
+  it('com um produto só, cai na fórmula clássica', () => {
+    const r = calcularEquilibrio({
+      produtos: [{ ...gordo, participacaoPct: 100 }],
+      custosFixosMensais: 30_000,
+    });
+    assert.equal(r.indiceMargemContribuicao, 60);
+    assert.equal(r.pontoEquilibrioFaturamento, 50_000);
+  });
+
+  it('inverter os pesos inverte o resultado', () => {
+    const r = calcularEquilibrio({
+      produtos: [
+        { ...magro, participacaoPct: 20 },
+        { ...gordo, participacaoPct: 80 },
+      ],
+      custosFixosMensais: 20_000,
+    });
+    // 0,2×20 + 0,8×60 = 52
+    assert.equal(r.indiceMargemContribuicao, 52);
+  });
+});
+
+describe('os percentuais variáveis entram no custo', () => {
+  it('imposto e comissão reduzem a margem de contribuição', () => {
+    const r = calcularEquilibrio({
+      produtos: [
+        { nome: 'A', preco: 100, custoDireto: 40, variaveisPct: 15, participacaoPct: 100 },
+      ],
+      custosFixosMensais: 10_000,
+    });
+    // Custo variável = 40 + 15 = 55. MC = 45.
+    assert.equal(r.produtos[0]?.margemContribuicao, 45);
+    assert.equal(r.indiceMargemContribuicao, 45);
+  });
+});
+
+describe('participações que não somam 100', () => {
+  it('normaliza proporcionalmente', () => {
+    const r = calcularEquilibrio({
+      produtos: [
+        { ...magro, participacaoPct: 40 },
+        { ...gordo, participacaoPct: 10 },
+      ],
+      custosFixosMensais: 20_000,
+    });
+    // 40 e 10 viram 80 e 20 — mesma proporção, mesmo índice de antes.
+    assert.equal(r.produtos[0]?.participacaoPct, 80);
+    assert.equal(r.indiceMargemContribuicao, 28);
+  });
+
+  it('avisa quando o desvio é relevante', () => {
+    const r = calcularEquilibrio({
+      produtos: [{ ...magro, participacaoPct: 50 }],
+      custosFixosMensais: 10_000,
+    });
+    assert.equal(r.alertas.some((a) => /somam 50%/.test(a)), true);
+  });
+
+  it('não incomoda por um ponto de arredondamento', () => {
+    const r = calcularEquilibrio({
+      produtos: [
+        { ...magro, participacaoPct: 79.7 },
+        { ...gordo, participacaoPct: 20 },
+      ],
+      custosFixosMensais: 10_000,
+    });
+    assert.equal(r.alertas.some((a) => /somam/.test(a)), false);
+  });
+
+  it('soma zero é erro, não normalização', () => {
+    const r = calcularEquilibrio({
+      produtos: [{ ...magro, participacaoPct: 0 }],
+      custosFixosMensais: 10_000,
+    });
+    assert.equal(r.viavel, false);
+    assert.match(r.erro ?? '', /participação/i);
+  });
+});
+
+describe('o produto que destrói valor', () => {
+  it('margem negativa é apontada pelo nome', () => {
+    const r = calcularEquilibrio({
+      produtos: [
+        { nome: 'Combo promocional', preco: 100, custoDireto: 95, variaveisPct: 15, participacaoPct: 50 },
+        { ...gordo, participacaoPct: 50 },
+      ],
+      custosFixosMensais: 10_000,
+    });
+
+    const ruim = r.produtos.find((p) => p.nome === 'Combo promocional');
+    assert.equal(ruim?.destruiValor, true);
+    assert.equal(r.alertas.some((a) => /Combo promocional/.test(a)), true);
+    assert.equal(r.alertas.some((a) => /vender mais piora/.test(a)), true);
+  });
+
+  it('mix inteiro negativo não produz ponto de equilíbrio', () => {
+    const r = calcularEquilibrio({
+      produtos: [
+        { nome: 'A', preco: 100, custoDireto: 110, variaveisPct: 0, participacaoPct: 100 },
+      ],
+      custosFixosMensais: 10_000,
+    });
+    assert.equal(r.viavel, false);
+    assert.match(r.erro ?? '', /nenhum volume de vendas paga/);
+  });
+});
+
+describe('quanto vender de cada produto', () => {
+  it('reparte o ponto de equilíbrio pelos pesos', () => {
+    const r = calcularEquilibrio({ produtos: [magro, gordo], custosFixosMensais: 20_000 });
+
+    // 71.428,57 repartido em 80/20.
+    assert.equal(r.produtos[0]?.equilibrioFaturamento, 57_142.86);
+    assert.equal(r.produtos[1]?.equilibrioFaturamento, 14_285.71);
+  });
+
+  it('e converte em unidades, arredondando para cima', () => {
+    const r = calcularEquilibrio({ produtos: [magro, gordo], custosFixosMensais: 20_000 });
+    // 57.142,86 / 100 = 571,4 -> 572. Vender 571 não paga a conta.
+    assert.equal(r.produtos[0]?.equilibrioUnidades, 572);
+    assert.equal(r.produtos[1]?.equilibrioUnidades, 143);
+  });
+});
+
+describe('margem de segurança', () => {
+  const mix = { produtos: [magro, gordo], custosFixosMensais: 20_000 };
+
+  it('faturando acima do equilíbrio, mostra a folga e o lucro', () => {
+    const r = calcularEquilibrio({ ...mix, faturamentoAtual: 100_000 });
+    // MC total = 28.000; lucro = 28.000 − 20.000 = 8.000
+    assert.equal(r.resultadoNoFaturamentoAtual, 8_000);
+    // (100.000 − 71.428,57) / 100.000 = 28,57%
+    assert.equal(r.margemSegurancaPct, 28.57);
+  });
+
+  it('abaixo do equilíbrio, diz o tamanho do prejuízo', () => {
+    const r = calcularEquilibrio({ ...mix, faturamentoAtual: 60_000 });
+    assert.equal(r.resultadoNoFaturamentoAtual, -3_200);
+    assert.ok((r.margemSegurancaPct ?? 0) < 0);
+    assert.equal(r.alertas.some((a) => /abaixo do ponto de/.test(a)), true);
+  });
+
+  it('folga pequena também é avisada', () => {
+    const r = calcularEquilibrio({ ...mix, faturamentoAtual: 75_000 });
+    assert.ok((r.margemSegurancaPct ?? 0) > 0);
+    assert.equal(r.alertas.some((a) => /Margem de segurança de apenas/.test(a)), true);
+  });
+
+  it('sem faturamento informado, não inventa margem de segurança', () => {
+    const r = calcularEquilibrio(mix);
+    assert.equal(r.margemSegurancaPct, null);
+    assert.equal(r.resultadoNoFaturamentoAtual, null);
+  });
+});
+
+describe('bordas', () => {
+  it('sem produtos, não calcula', () => {
+    const r = calcularEquilibrio({ produtos: [], custosFixosMensais: 10_000 });
+    assert.equal(r.viavel, false);
+  });
+
+  it('produto sem preço é ignorado', () => {
+    const r = calcularEquilibrio({
+      produtos: [{ ...magro, preco: 0 }, { ...gordo, participacaoPct: 100 }],
+      custosFixosMensais: 10_000,
+    });
+    assert.equal(r.produtos.length, 1);
+  });
+
+  it('sem custo fixo, calcula a margem mas avisa', () => {
+    const r = calcularEquilibrio({ produtos: [magro, gordo], custosFixosMensais: 0 });
+    assert.equal(r.viavel, true);
+    assert.equal(r.indiceMargemContribuicao, 28);
+    assert.equal(r.pontoEquilibrioFaturamento, null);
+    assert.equal(r.alertas.some((a) => /Sem despesas fixas/.test(a)), true);
+  });
+});

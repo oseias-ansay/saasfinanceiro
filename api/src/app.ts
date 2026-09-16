@@ -10,6 +10,7 @@ import { logger } from './lib/logger.js';
 import { errorHandler, notFoundHandler } from './middlewares/error-handler.js';
 import { transactionsRouter } from './modules/transactions/transactions.routes.js';
 import { reportsRouter } from './modules/reports/reports.routes.js';
+import { equilibrioRouter } from './modules/precificacao/equilibrio.routes.js';
 import { onboardingRouter } from './modules/onboarding/onboarding.routes.js';
 import { adminRouter } from './modules/admin/admin.routes.js';
 import { n8nRouter } from './modules/webhooks/n8n.routes.js';
@@ -58,6 +59,7 @@ export function createApp() {
   app.use('/api/v1/admin', adminRouter);
   app.use('/api/v1/transactions', transactionsRouter);
   app.use('/api/v1/reports', reportsRouter);
+  app.use('/api/v1/equilibrio', equilibrioRouter);
   app.use('/api/v1/fechamento', fechamentoRouter);
   app.use('/api/v1/crm', crmRouter);
   // Antes do n8nRouter de propósito: montado depois, o prefixo mais curto
