@@ -1,7 +1,32 @@
-# Onde paramos — 15/09/2026
+# Onde paramos — 16/09/2026
 
-Retome pelo **deploy do envio das 8h** (abaixo). Depois disso, falta só
-virar a chave no site.
+Retome por **publicar o site** (o formulário está quebrado em produção) e
+pelo **deploy da correção do vigia**.
+
+---
+
+## 16/09 — o vigia estava punindo a pontualidade
+
+O alarme das 8h de hoje era **falso**. O envio rodou às 8h03, entregou o
+que tinha (fila vazia, tudo já enviado ontem), e mesmo assim o vigia
+acusou atraso às 8h45.
+
+A causa: `ultimoPrazo` devolvia um instante só — hora mais tolerância — e
+`avaliar` exigia que o sucesso fosse POSTERIOR a ele. Quem rodava pontual,
+dentro da tolerância, era marcado como atrasado. E permanecia assim o dia
+inteiro, todo dia.
+
+Corrigido: a janela agora tem dois instantes. `inicio` é a hora marcada —
+sucesso a partir daí conta. `limite` é início mais tolerância — daí em
+diante o vigia cobra. A tolerância adia a cobrança; não desqualifica quem
+chegou na hora.
+
+**Os testes antigos não pegaram** porque todos usavam execuções depois da
+tolerância. O caso do processo bem-comportado nunca tinha sido escrito.
+Agora tem quatro casos cobrindo pontualidade, o minuto exato da abertura,
+o minuto anterior, e a contagem do atraso.
+
+**201 testes passando.** Falta subir.
 
 ---
 

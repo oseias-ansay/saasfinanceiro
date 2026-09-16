@@ -108,40 +108,73 @@ export const PROCESSOS: readonly Processo[] = [
 ];
 
 /**
- * O instante mais recente em que este processo já deveria ter terminado.
+ * A janela de execução mais recente que já se encerrou.
  *
- * Devolve nulo quando ainda não houve nenhum — processo mensal no dia 2,
- * por exemplo. Nulo significa "não há o que cobrar ainda", e é diferente
- * de "está em dia".
+ * =====================================================================
+ * POR QUE SÃO DOIS INSTANTES, E NÃO UM
+ * =====================================================================
+ * Até 16/09/2026 esta função devolvia um número só — hora mais tolerância
+ * — e `avaliar` exigia que o sucesso fosse POSTERIOR a ele. O efeito era o
+ * contrário do pretendido: um processo que rodava às 8h03, pontual,
+ * ficava marcado como atrasado a partir das 8h45 e assim permanecia o dia
+ * inteiro. **O vigia punia a pontualidade.**
+ *
+ * Foi exatamente o que aconteceu com o envio dos diagnósticos: ele rodou
+ * às 8h03, entregou o que tinha para entregar, e mesmo assim gerou
+ * alarme. Alarme falso é pior que alarme nenhum, porque ensina quem
+ * recebe a ignorar — e aí o verdadeiro passa despercebido junto.
+ *
+ * Os dois instantes têm papéis distintos:
+ *
+ * - `inicio`  — a hora marcada. Sucesso a partir daqui CONTA.
+ * - `limite`  — início mais a tolerância. A partir daqui o vigia COBRA.
+ *
+ * A tolerância atrasa a cobrança; ela não desqualifica quem chegou cedo.
+ *
+ * Devolve nulo quando nenhuma janela se encerrou ainda — processo mensal
+ * no dia 2, por exemplo. Nulo significa "não há o que cobrar ainda", e é
+ * diferente de "está em dia".
  */
-export function ultimoPrazo(exp: Expectativa, agora: Date): Date | null {
+export interface Janela {
+  /** A hora marcada. Execução daqui em diante conta como feita. */
+  inicio: Date;
+  /** Início mais a tolerância. Daqui em diante o vigia cobra. */
+  limite: Date;
+}
+
+export function ultimoPrazo(exp: Expectativa, agora: Date): Janela | null {
   if (exp.tipo === 'intervalo') {
-    return new Date(agora.getTime() - (exp.minutos + exp.toleranciaMin) * 60_000);
+    // Processo de intervalo não tem hora marcada: a janela é uma faixa
+    // móvel que termina agora. `limite` igual a `agora` mantém a regra
+    // "sempre vencido", que é a semântica certa para algo que deveria
+    // estar rodando o tempo todo.
+    return {
+      inicio: new Date(agora.getTime() - (exp.minutos + exp.toleranciaMin) * 60_000),
+      limite: agora,
+    };
   }
 
   const p = emSaoPaulo(agora);
-  const limite = (dia: { ano: number; mes: number; dia: number }) =>
-    new Date(
-      instanteEmSaoPaulo(dia.ano, dia.mes, dia.dia, exp.hora).getTime() +
-        exp.toleranciaMin * 60_000,
-    );
+  const janela = (dia: { ano: number; mes: number; dia: number }): Janela => {
+    const inicio = instanteEmSaoPaulo(dia.ano, dia.mes, dia.dia, exp.hora);
+    return { inicio, limite: new Date(inicio.getTime() + exp.toleranciaMin * 60_000) };
+  };
 
   if (exp.tipo === 'diario') {
-    const hoje = limite(p);
-    if (hoje <= agora) return hoje;
-    const ontem = diasAntes(p, 1);
-    return limite(ontem);
+    const hoje = janela(p);
+    if (hoje.limite <= agora) return hoje;
+    return janela(diasAntes(p, 1));
   }
 
   if (exp.tipo === 'diasUteis') {
-    // Anda para trás até achar o último dia útil cujo prazo já venceu.
-    // Na segunda às 7h, o último prazo é o de sexta — e cobrar o de
-    // sábado faria o vigia gritar todo fim de semana.
+    // Anda para trás até achar o último dia útil cuja janela já fechou.
+    // Na segunda às 7h, a última é a de sexta — e cobrar a de sábado
+    // faria o vigia gritar todo fim de semana.
     let d = p;
     for (let i = 0; i < 10; i++) {
       if (!ehFimDeSemana(d)) {
-        const prazo = limite(d);
-        if (prazo <= agora) return prazo;
+        const j = janela(d);
+        if (j.limite <= agora) return j;
       }
       d = diasAntes(d, 1);
     }
@@ -149,18 +182,21 @@ export function ultimoPrazo(exp: Expectativa, agora: Date): Date | null {
   }
 
   // Mensal.
-  const desteMes = limite({ ano: p.ano, mes: p.mes, dia: exp.dia });
-  if (desteMes <= agora) return desteMes;
+  const desteMes = janela({ ano: p.ano, mes: p.mes, dia: exp.dia });
+  if (desteMes.limite <= agora) return desteMes;
 
   const mesAnterior = p.mes === 1 ? 12 : p.mes - 1;
   const anoAnterior = p.mes === 1 ? p.ano - 1 : p.ano;
-  return limite({ ano: anoAnterior, mes: mesAnterior, dia: exp.dia });
+  return janela({ ano: anoAnterior, mes: mesAnterior, dia: exp.dia });
 }
 
 export interface Situacao {
   processo: Processo;
   ultimoSucesso: Date | null;
+  /** O instante a partir do qual o vigia cobra (início + tolerância). */
   prazo: Date | null;
+  /** A hora marcada. Sucesso a partir daqui conta como em dia. */
+  inicioJanela: Date | null;
   atrasado: boolean;
   /** Há quanto tempo era para ter rodado. Nulo quando está em dia. */
   atrasoMin: number | null;
@@ -180,17 +216,29 @@ export function avaliar(
   processos: readonly Processo[] = PROCESSOS,
 ): Situacao[] {
   return processos.map((processo) => {
-    const prazo = ultimoPrazo(processo.expectativa, agora);
+    const janela = ultimoPrazo(processo.expectativa, agora);
     const ultimoSucesso = ultimosSucessos[processo.chave] ?? null;
 
-    const atrasado = prazo !== null && (ultimoSucesso === null || ultimoSucesso < prazo);
+    // A comparação é contra o INÍCIO da janela, não contra o limite. Quem
+    // rodou às 8h03 de uma janela que abre às 8h rodou — a tolerância de
+    // 45 minutos existe para adiar a cobrança, não para invalidar quem
+    // chegou na hora. Ver o comentário em `ultimoPrazo`.
+    const atrasado =
+      janela !== null && (ultimoSucesso === null || ultimoSucesso < janela.inicio);
 
     return {
       processo,
       ultimoSucesso,
-      prazo,
+      prazo: janela?.limite ?? null,
+      inicioJanela: janela?.inicio ?? null,
       atrasado,
-      atrasoMin: atrasado && prazo ? Math.round((agora.getTime() - prazo.getTime()) / 60_000) : null,
+      // Contado a partir do limite, que é quando a cobrança começou a
+      // fazer sentido. Contar do início inflaria o atraso em 45 minutos
+      // logo no primeiro alarme.
+      atrasoMin:
+        atrasado && janela
+          ? Math.round((agora.getTime() - janela.limite.getTime()) / 60_000)
+          : null,
     };
   });
 }

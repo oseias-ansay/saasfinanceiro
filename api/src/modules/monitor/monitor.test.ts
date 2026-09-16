@@ -78,19 +78,26 @@ describe('prazo de processo diário', () => {
   it('antes da hora, cobra o dia anterior', () => {
     // 01h de SP: o das 3h de hoje ainda não venceu.
     const r = ultimoPrazo(exp, utc('2026-09-11T04:00:00Z'));
-    assert.equal(r?.toISOString(), '2026-09-10T07:00:00.000Z'); // 04h SP do dia 10
+    assert.equal(r?.limite.toISOString(), '2026-09-10T07:00:00.000Z'); // 04h SP do dia 10
   });
 
   it('depois da hora mais tolerância, cobra o de hoje', () => {
     const r = ultimoPrazo(exp, utc('2026-09-11T12:00:00Z')); // 09h SP
-    assert.equal(r?.toISOString(), '2026-09-11T07:00:00.000Z');
+    assert.equal(r?.limite.toISOString(), '2026-09-11T07:00:00.000Z');
+  });
+
+  it('o início da janela é a hora marcada, sem a tolerância', () => {
+    const r = ultimoPrazo(exp, utc('2026-09-11T12:00:00Z'));
+    assert.equal(r?.inicio.toISOString(), '2026-09-11T06:00:00.000Z'); // 03h SP
+    // A distância entre os dois é exatamente a tolerância.
+    assert.equal((r!.limite.getTime() - r!.inicio.getTime()) / 60_000, 60);
   });
 
   it('o minuto antes e o minuto depois do prazo caem em dias diferentes', () => {
     const antes = ultimoPrazo(exp, utc('2026-09-11T06:59:00Z'));
     const depois = ultimoPrazo(exp, utc('2026-09-11T07:01:00Z'));
-    assert.equal(emSaoPaulo(antes!).dia, 10);
-    assert.equal(emSaoPaulo(depois!).dia, 11);
+    assert.equal(emSaoPaulo(antes!.limite).dia, 10);
+    assert.equal(emSaoPaulo(depois!.limite).dia, 11);
   });
 });
 
@@ -100,19 +107,19 @@ describe('prazo de processo de dias úteis — a borda da segunda-feira', () => 
   it('na segunda de manhã, o último prazo é o de SEXTA', () => {
     // Segunda, 14/09/2026, 07h de SP — antes do prazo de hoje.
     const r = ultimoPrazo(exp, utc('2026-09-14T10:00:00Z'));
-    const p = emSaoPaulo(r!);
+    const p = emSaoPaulo(r!.limite);
     assert.equal(p.dia, 11); // sexta
     assert.equal(p.diaSemana, 5);
   });
 
   it('no domingo, também cobra sexta — e não o sábado', () => {
     const r = ultimoPrazo(exp, utc('2026-09-13T15:00:00Z'));
-    assert.equal(emSaoPaulo(r!).dia, 11);
+    assert.equal(emSaoPaulo(r!.limite).dia, 11);
   });
 
   it('na segunda depois das 8h45, cobra a própria segunda', () => {
     const r = ultimoPrazo(exp, utc('2026-09-14T12:00:00Z'));
-    assert.equal(emSaoPaulo(r!).dia, 14);
+    assert.equal(emSaoPaulo(r!.limite).dia, 14);
   });
 });
 
@@ -121,19 +128,19 @@ describe('prazo de processo mensal', () => {
 
   it('no dia 2, ainda cobra o mês anterior', () => {
     const r = ultimoPrazo(exp, utc('2026-09-02T15:00:00Z'));
-    const p = emSaoPaulo(r!);
+    const p = emSaoPaulo(r!.limite);
     assert.equal(p.mes, 8);
     assert.equal(p.dia, 5);
   });
 
   it('no dia 6, cobra este mês', () => {
     const r = ultimoPrazo(exp, utc('2026-09-06T15:00:00Z'));
-    assert.equal(emSaoPaulo(r!).mes, 9);
+    assert.equal(emSaoPaulo(r!.limite).mes, 9);
   });
 
   it('em janeiro, o mês anterior é dezembro do ano passado', () => {
     const r = ultimoPrazo(exp, utc('2026-01-02T15:00:00Z'));
-    const p = emSaoPaulo(r!);
+    const p = emSaoPaulo(r!.limite);
     assert.equal(p.mes, 12);
     assert.equal(p.ano, 2025);
   });
@@ -143,7 +150,10 @@ describe('prazo de processo por intervalo', () => {
   it('cobra o intervalo mais a tolerância para trás', () => {
     const agora = utc('2026-09-11T12:00:00Z');
     const r = ultimoPrazo({ tipo: 'intervalo', minutos: 15, toleranciaMin: 30 }, agora);
-    assert.equal(r?.toISOString(), '2026-09-11T11:15:00.000Z');
+    assert.equal(r?.inicio.toISOString(), '2026-09-11T11:15:00.000Z');
+    // Processo de intervalo está sempre vencido: não há hora marcada a
+    // esperar, ele deveria estar rodando o tempo todo.
+    assert.equal(r?.limite.toISOString(), agora.toISOString());
   });
 });
 
@@ -160,6 +170,40 @@ describe('a avaliação', () => {
     const r = avaliar(agora, { teste: utc('2026-09-11T07:30:00Z') }, [proc]);
     assert.equal(r[0]?.atrasado, false);
     assert.equal(r[0]?.atrasoMin, null);
+  });
+
+  /**
+   * A regressão de 16/09/2026.
+   *
+   * O vigia exigia que o sucesso fosse posterior a hora+tolerância, então
+   * quem rodava PONTUALMENTE ficava marcado como atrasado — o dia
+   * inteiro, todo dia. O envio dos diagnósticos rodou às 8h03, entregou
+   * tudo, e mesmo assim disparou alarme às 8h45.
+   *
+   * Os testes antigos não pegaram porque todos usavam execuções DEPOIS da
+   * tolerância. O caso do processo bem-comportado nunca foi escrito.
+   */
+  it('PONTUAL não é atrasado: rodou às 3h05, tolerância até 4h', () => {
+    // 06:05Z = 03h05 em SP. A janela abre às 3h, o limite é 4h.
+    const r = avaliar(agora, { teste: utc('2026-09-11T06:05:00Z') }, [proc]);
+    assert.equal(r[0]?.atrasado, false);
+    assert.equal(r[0]?.atrasoMin, null);
+  });
+
+  it('no minuto exato da janela também conta', () => {
+    const r = avaliar(agora, { teste: utc('2026-09-11T06:00:00Z') }, [proc]);
+    assert.equal(r[0]?.atrasado, false);
+  });
+
+  it('um minuto ANTES da janela não conta — é a execução de ontem', () => {
+    const r = avaliar(agora, { teste: utc('2026-09-11T05:59:00Z') }, [proc]);
+    assert.equal(r[0]?.atrasado, true);
+  });
+
+  it('o atraso é contado a partir do limite, não do início da janela', () => {
+    // Nunca rodou. Agora são 09h SP; o limite de hoje foi 04h SP.
+    const r = avaliar(agora, {}, [proc]);
+    assert.equal(r[0]?.atrasoMin, 300); // 5h, e não 6h
   });
 
   it('atrasado quando a última execução é anterior ao prazo', () => {

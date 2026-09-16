@@ -36,6 +36,10 @@ monitorRouter.get('/situacao', async (_req, res, next) => {
           atrasado: s.atrasado,
           atraso_min: s.atrasoMin,
           ultimo_sucesso: s.ultimoSucesso?.toISOString() ?? null,
+          // Os dois, porque a diferença entre eles é o que explica um
+          // "atrasado" que não parece atrasado: o sucesso precisa ser
+          // posterior a `janela_abre`, e a cobrança só começa em `prazo`.
+          janela_abre: s.inicioJanela?.toISOString() ?? null,
           prazo: s.prazo?.toISOString() ?? null,
           consequencia: s.processo.consequencia,
         })),
