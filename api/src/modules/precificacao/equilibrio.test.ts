@@ -81,6 +81,86 @@ describe('os percentuais variáveis entram no custo', () => {
   });
 });
 
+describe('imposto separado dos demais variáveis', () => {
+  const p = {
+    nome: 'A',
+    preco: 100,
+    custoDireto: 40,
+    impostoPct: 9,
+    variaveisPct: 6,
+    participacaoPct: 100,
+  };
+
+  it('a MC bruta ignora imposto e comissão', () => {
+    const r = calcularEquilibrio({ produtos: [p], custosFixosMensais: 10_000 });
+    assert.equal(r.produtos[0]?.margemContribuicaoBruta, 60);
+    assert.equal(r.produtos[0]?.margemContribuicaoBrutaPct, 60);
+  });
+
+  it('a MC líquida desconta os dois, e é ela que vale', () => {
+    const r = calcularEquilibrio({ produtos: [p], custosFixosMensais: 10_000 });
+    assert.equal(r.produtos[0]?.imposto, 9);
+    assert.equal(r.produtos[0]?.outrosVariaveis, 6);
+    assert.equal(r.produtos[0]?.margemContribuicao, 45);
+    assert.equal(r.indiceMargemContribuicao, 45);
+  });
+
+  /**
+   * A garantia de que a separação não mudou nenhum número.
+   *
+   * Importa porque a coluna nasce em zero para quem já tinha produtos
+   * cadastrados: enquanto ninguém editar, 9+6 continua morando em
+   * `variaveisPct`, e o resultado tem de ser idêntico. Se estes dois
+   * cálculos divergirem, alguém passou a contar imposto duas vezes.
+   */
+  it('9% + 6% separados dá o mesmo que 15% juntos', () => {
+    const separado = calcularEquilibrio({ produtos: [p], custosFixosMensais: 10_000 });
+    const junto = calcularEquilibrio({
+      produtos: [{ ...p, impostoPct: 0, variaveisPct: 15 }],
+      custosFixosMensais: 10_000,
+    });
+
+    assert.equal(separado.produtos[0]?.margemContribuicao, junto.produtos[0]?.margemContribuicao);
+    assert.equal(separado.pontoEquilibrioFaturamento, junto.pontoEquilibrioFaturamento);
+  });
+
+  it('sem imposto informado, o campo vem zerado e nada muda', () => {
+    const r = calcularEquilibrio({
+      produtos: [{ ...p, impostoPct: undefined }],
+      custosFixosMensais: 10_000,
+    });
+    assert.equal(r.produtos[0]?.imposto, 0);
+    assert.equal(r.produtos[0]?.margemContribuicao, 54); // 100 − 40 − 6
+  });
+
+  /**
+   * O caso que a separação torna visível.
+   *
+   * Olhando só a MC bruta, o item parece dar 15% e o dono acha que está
+   * ganhando pouco. Com imposto e comissão, ele está PERDENDO dois reais
+   * por unidade. Antes de separar, esse diagnóstico exigia refazer a
+   * conta à mão.
+   *
+   * O acompanhante saudável existe para o mix não ficar negativo — com
+   * mix negativo a função recusa a conta inteira, que é outro teste.
+   */
+  it('imposto revela o item que parece lucrativo e não é', () => {
+    const r = calcularEquilibrio({
+      produtos: [
+        { ...p, nome: 'Parece bom', custoDireto: 85, impostoPct: 12, variaveisPct: 5, participacaoPct: 20 },
+        { ...p, nome: 'Saudável', custoDireto: 30, impostoPct: 9, variaveisPct: 6, participacaoPct: 80 },
+      ],
+      custosFixosMensais: 10_000,
+    });
+
+    const ruim = r.produtos.find((x) => x.nome === 'Parece bom');
+    assert.equal(ruim?.margemContribuicaoBruta, 15);
+    assert.equal(ruim?.margemContribuicao, -2);
+    assert.equal(ruim?.destruiValor, true);
+    assert.equal(r.alertas.some((a) => /Parece bom/.test(a)), true);
+  });
+});
+
 describe('participações que não somam 100', () => {
   it('normaliza proporcionalmente', () => {
     const r = calcularEquilibrio({

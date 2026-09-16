@@ -37,8 +37,24 @@ export interface ProdutoEntrada {
   preco: number;
   /** Custo direto por unidade. */
   custoDireto: number;
-  /** Percentuais sobre o preço — impostos, comissão, frete, cartão. */
+
+  /**
+   * Alíquota de imposto sobre o preço de venda.
+   *
+   * Separada de `variaveisPct` desde 16/09/2026, e não por capricho: a
+   * alíquota muda de produto para produto — ISS de serviço ao lado de
+   * ICMS de mercadoria, anexos diferentes do Simples — enquanto comissão
+   * e taxa de cartão costumam ser iguais para tudo. Somadas num campo só,
+   * o usuário tinha de fazer essa conta de cabeça a cada item.
+   *
+   * O efeito no cálculo é NENHUM: imposto e demais variáveis são
+   * descontados juntos, como sempre foram. O que muda é a leitura.
+   */
+  impostoPct?: number;
+
+  /** Comissão, frete, embalagem, taxa de cartão. Sem o imposto. */
   variaveisPct: number;
+
   /** Peso deste produto no faturamento total. */
   participacaoPct: number;
 }
@@ -48,6 +64,24 @@ export interface ProdutoCalculado {
   nome: string;
   preco: number;
   custoVariavelUnitario: number;
+
+  /**
+   * Preço menos o custo direto, ANTES de imposto e comissão.
+   *
+   * Não serve para decidir nada sozinha — é sempre otimista. Está aqui
+   * porque a distância entre ela e a líquida é o que o Estado e o
+   * vendedor levam de cada venda, e ver esse número costuma ser o que faz
+   * o dono da empresa perguntar sobre regime tributário.
+   */
+  margemContribuicaoBruta: number;
+  margemContribuicaoBrutaPct: number;
+
+  /** Quanto de imposto cada unidade carrega, em reais. */
+  imposto: number;
+  /** Comissão, frete, cartão — em reais por unidade. */
+  outrosVariaveis: number;
+
+  /** A que manda: depois do custo direto, do imposto e do resto. */
   margemContribuicao: number;
   margemContribuicaoPct: number;
   /** Participação depois de normalizada para somar 100. */
@@ -141,7 +175,17 @@ export function calcularEquilibrio(entrada: EntradaEquilibrio): ResultadoEquilib
   // ---- Cada produto --------------------------------------------------
   const produtos: ProdutoCalculado[] = lista.map((p) => {
     const preco = num(p.preco);
-    const custoVar = num(p.custoDireto) + (preco * num(p.variaveisPct)) / 100;
+    const custo = num(p.custoDireto);
+
+    const imposto = r2((preco * num(p.impostoPct)) / 100);
+    const outros = r2((preco * num(p.variaveisPct)) / 100);
+
+    // O custo variável total continua sendo a soma de tudo que varia com
+    // a venda. A separação entre imposto e o resto é de leitura, não de
+    // cálculo — o ponto de equilíbrio é idêntico ao de antes.
+    const custoVar = custo + imposto + outros;
+
+    const mcBruta = r2(preco - custo);
     const mc = r2(preco - custoVar);
     const mcPct = r2((mc / preco) * 100);
     const peso = r2((num(p.participacaoPct) / somaParticipacao) * 100);
@@ -151,6 +195,10 @@ export function calcularEquilibrio(entrada: EntradaEquilibrio): ResultadoEquilib
       nome: p.nome,
       preco: r2(preco),
       custoVariavelUnitario: r2(custoVar),
+      margemContribuicaoBruta: mcBruta,
+      margemContribuicaoBrutaPct: r2((mcBruta / preco) * 100),
+      imposto,
+      outrosVariaveis: outros,
       margemContribuicao: mc,
       margemContribuicaoPct: mcPct,
       participacaoPct: peso,

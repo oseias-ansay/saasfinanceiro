@@ -306,6 +306,7 @@ export type Database = {
           created_at: string
           custo_direto: number
           id: string
+          imposto_pct: number
           is_active: boolean
           nome: string
           ordem: number
@@ -319,6 +320,7 @@ export type Database = {
           created_at?: string
           custo_direto?: number
           id?: string
+          imposto_pct?: number
           is_active?: boolean
           nome: string
           ordem?: number
@@ -332,6 +334,7 @@ export type Database = {
           created_at?: string
           custo_direto?: number
           id?: string
+          imposto_pct?: number
           is_active?: boolean
           nome?: string
           ordem?: number

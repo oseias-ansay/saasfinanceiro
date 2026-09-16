@@ -27,6 +27,7 @@ const produtoSchema = z.object({
   nome: z.string().trim().min(1).max(120),
   preco: z.coerce.number().positive('Preço deve ser maior que zero'),
   custo_direto: z.coerce.number().min(0).default(0),
+  imposto_pct: z.coerce.number().min(0).max(99.99).default(0),
   variaveis_pct: z.coerce.number().min(0).max(99.99).default(0),
   participacao_pct: z.coerce.number().min(0).max(100).default(0),
   ordem: z.coerce.number().int().min(0).default(0),
@@ -234,6 +235,7 @@ equilibrioRouter.get('/', async (req, res, next) => {
       nome: p.nome,
       preco: Number(p.preco),
       custoDireto: Number(p.custo_direto),
+      impostoPct: Number(p.imposto_pct ?? 0),
       variaveisPct: Number(p.variaveis_pct),
       participacaoPct: Number(p.participacao_pct),
     }));
@@ -270,6 +272,7 @@ const simulacaoSchema = z.object({
         nome: z.string().trim().min(1).max(120),
         preco: z.coerce.number(),
         custoDireto: z.coerce.number().default(0),
+        impostoPct: z.coerce.number().default(0),
         variaveisPct: z.coerce.number().default(0),
         participacaoPct: z.coerce.number().default(0),
       }),
