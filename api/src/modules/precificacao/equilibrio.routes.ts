@@ -115,15 +115,26 @@ const custoSchema = z
 equilibrioRouter.post('/custos-fixos', ESCREVE, validate(custoSchema), async (req, res, next) => {
   try {
     const corpo = req.body as z.infer<typeof custoSchema>;
+    const linha = { ...corpo, tenant_id: req.tenantId! };
 
-    const { data, error } = await req.supabase
-      .from('mix_custos_fixos')
-      .upsert({ ...corpo, tenant_id: req.tenantId! } as never, {
-        onConflict: 'tenant_id,category_id',
-        ignoreDuplicates: false,
-      })
-      .select('*')
-      .single();
+    // Categoria e item avulso gravam de formas diferentes, e misturar as
+    // duas foi o defeito de 16/09.
+    //
+    // Categoria: `upsert` por (tenant_id, category_id) — reabrir a tela e
+    // mudar a mesma linha atualiza em vez de criar outra.
+    //
+    // Avulso: `category_id` é nulo, e em Postgres dois nulos não
+    // conflitam. Um upsert aqui inseriria uma cópia a cada clique, e o
+    // total passaria a somar o mesmo pró-labore várias vezes. Por isso
+    // item avulso só entra por `insert`; alterar o dele é PATCH por id.
+    const consulta = corpo.category_id
+      ? req.supabase.from('mix_custos_fixos').upsert(linha as never, {
+          onConflict: 'tenant_id,category_id',
+          ignoreDuplicates: false,
+        })
+      : req.supabase.from('mix_custos_fixos').insert(linha as never);
+
+    const { data, error } = await consulta.select('*').single();
 
     if (error) throw fromPostgrest(error);
     res.json({ data });
@@ -131,6 +142,36 @@ equilibrioRouter.post('/custos-fixos', ESCREVE, validate(custoSchema), async (re
     next(e);
   }
 });
+
+/** Altera um item já gravado — valor ou inclusão. */
+equilibrioRouter.patch(
+  '/custos-fixos/:id',
+  ESCREVE,
+  validate(
+    z.object({
+      valor_mensal: z.coerce.number().min(0).nullish(),
+      incluir: z.boolean().optional(),
+      descricao: z.string().trim().min(1).max(120).optional(),
+    }),
+  ),
+  async (req, res, next) => {
+    try {
+      const { data, error } = await req.supabase
+        .from('mix_custos_fixos')
+        .update(req.body as never)
+        .eq('id', req.params.id!)
+        .eq('tenant_id', req.tenantId!)
+        .select('*')
+        .maybeSingle();
+
+      if (error) throw fromPostgrest(error);
+      if (!data) return next(notFound('Custo fixo não encontrado'));
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 equilibrioRouter.delete('/custos-fixos/:id', ESCREVE, async (req, res, next) => {
   try {
