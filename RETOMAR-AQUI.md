@@ -1,280 +1,187 @@
 # Onde paramos — 16/09/2026
 
-Retome por **publicar o site** (o formulário está quebrado em produção) e
-pelo **deploy da correção do vigia**.
+Três pendências operacionais abrem a lista, todas curtas. Depois delas, o
+que está no ar e o que ficou anotado.
 
 ---
 
-## 16/09 — o vigia estava punindo a pontualidade
+## O que precisa ser feito antes de qualquer coisa nova
 
-O alarme das 8h de hoje era **falso**. O envio rodou às 8h03, entregou o
-que tinha (fila vazia, tudo já enviado ontem), e mesmo assim o vigia
-acusou atraso às 8h45.
+### 1. Rotacionar credenciais
 
-A causa: `ultimoPrazo` devolvia um instante só — hora mais tolerância — e
-`avaliar` exigia que o sucesso fosse POSTERIOR a ele. Quem rodava pontual,
-dentro da tolerância, era marcado como atrasado. E permanecia assim o dia
-inteiro, todo dia.
+Quatro apareceram em texto claro ao longo do trabalho:
 
-Corrigido: a janela agora tem dois instantes. `inicio` é a hora marcada —
-sucesso a partir daí conta. `limite` é início mais tolerância — daí em
-diante o vigia cobra. A tolerância adia a cobrança; não desqualifica quem
-chegou na hora.
-
-**Os testes antigos não pegaram** porque todos usavam execuções depois da
-tolerância. O caso do processo bem-comportado nunca tinha sido escrito.
-Agora tem quatro casos cobrindo pontualidade, o minuto exato da abertura,
-o minuto anterior, e a contagem do atraso.
-
-**201 testes passando.** Falta subir.
-
----
-
-## O que aconteceu hoje, e por que importa
-
-Às 8h45 o vigia mandou um alarme no WhatsApp dizendo que o envio das 8h
-não tinha acontecido.
-
-Essa mesma falha existia desde antes de 11/09 e nunca tinha se anunciado.
-A descoberta anterior veio de fora — alguém percebeu que o relatório não
-chegou. Desta vez o sistema avisou sozinho, em 45 minutos, sem depender
-de o n8n reportar coisa alguma: o alarme conclui pela **ausência** de
-registro de sucesso, que é o modo de falha que ninguém detecta olhando
-log.
-
-A causa: o envio das 8h **nunca tinha sido migrado**. A entrada dos
-diagnósticos passou para a API em 14/09, mas quem esvaziava a fila
-continuava sendo um terceiro fluxo do n8n, parado havia dias.
-
-Isso está resolvido no código. Falta subir.
-
----
-
-## O que já está de pé e provado em produção
-
-- **Evolution → API direto.** Mensagem de WhatsApp chega e vira lead.
-- **O vigia.** SQL 33, 34 e 35 rodados em 15/09. Alarme provado duas
-  vezes: no teste proposital e hoje, de verdade.
-- **Diagnóstico comercial.** Formulário → régua → Claude → PDF por
-  e-mail. Testado ponta a ponta, PDF recebido.
-- **Diagnóstico financeiro.** Testado. Confirmação ao lead e aviso
-  interno com link de segurar; relatório fica `pendente`.
-- **Os fluxos de diagnóstico do n8n:** desativados (não apagados).
-
-**196 testes passando.**
-
----
-
-## O envio das 8h — pronto no código, falta subir
-
-Arquivos novos:
-
-| Arquivo | O que é |
-|---|---|
-| `api/src/modules/diagnosticos/fila.ts` | A lógica: quando roda, ordem do envio, isolamento por item, texto do alarme. Sem banco, sem SMTP. |
-| `api/src/modules/diagnosticos/fila.service.ts` | As dependências reais e a passada registrada em `execucoes`. |
-| `api/src/modules/diagnosticos/fila.agenda.ts` | O relógio: `setInterval` de 5 minutos. |
-| `api/src/modules/diagnosticos/fila.test.ts` | 19 testes. |
-
-Mudanças: `server.ts` (liga e desliga o relógio), `config/env.ts` (duas
-variáveis), `monitor.routes.ts` (rota de disparo manual).
-
-### Passo 1 — Enviar o código
-
-```powershell
-cd C:\Projetos\saasfinanceiro
-git add -A
-git commit -m "Envio das 8h na API: fila isolada por item, agendador proprio e registro em execucoes"
-git push
-```
-
-### Passo 2 — As duas variáveis novas
-
-**Confira antes de acrescentar** — o `.env` já duplicou duas vezes neste
-projeto, e a última ocorrência é a que vale:
-
-```bash
-grep -c '^DIAGNOSTICOS_ENVIO_ATIVO=' /opt/finance-src/api/.env
-```
-
-Se der 0:
-
-```bash
-cat >> /opt/finance-src/api/.env <<'EOF'
-DIAGNOSTICOS_ENVIO_ATIVO=true
-DIAGNOSTICOS_HORA_ENVIO=8
-EOF
-```
-
-### Passo 3 — Subir
-
-```bash
-cd /opt/finance-src && git pull
-cd api && docker compose up -d --build finance-api
-docker compose logs --tail 20 finance-api | grep -i 'Envio das 8h'
-```
-
-Tem de aparecer **`Envio das 8h ligado`**. Se aparecer
-`Envio das 8h desligado`, a variável não pegou.
-
-### Passo 4 — Soltar a fila represada, sem esperar amanhã
-
-```bash
-SEG=$(grep '^N8N_WEBHOOK_SECRET=' /opt/finance-src/api/.env | cut -d= -f2- | tr -d '"'"'"'\r')
-docker exec finance-api wget -qO- --post-data='' --header="x-n8n-secret: $SEG" \
-  http://localhost:3333/api/v1/monitor/fila
-```
-
-O diagnóstico financeiro de teste de 14/09 está nessa fila. O PDF tem de
-chegar no e-mail.
-
-Depois:
-
-```sql
-select processo, situacao, total, duracao_seg
-from public.vw_execucoes where processo = 'diagnosticos.envio'
-order by iniciado_em desc limit 3;
-```
-
-Com `situacao = 'ok'` registrado, o vigia para de cobrar este processo.
-
----
-
-## O que falta depois disso
-
-### 1. Virar a chave no site
-
-```powershell
-cd "C:\Projetos\business-triage"
-npm run build
-```
-
-Publicar, e testar pelos dois endereços — **com `www` e sem `www`**. Foi
-aí que o "Failed to fetch" mordeu.
-
-Confira que o protocolo da tela é o mesmo do banco:
-
-```sql
-select protocolo, tipo, status, score_total from public.diagnosticos
-order by created_at desc limit 5;
-```
-
-### 2. Credenciais para trocar
-
-1. **Chave da Anthropic** — trocada em 15/09. **Confirmar que a antiga
-   foi revogada no console.** Trocar no `.env` não impede ninguém de usar
-   a velha.
-2. **Senha do SMTP** (Hostinger) — primeiros caracteres vazaram numa
-   saída de diagnóstico.
-3. **Apikey da Evolution** — apareceu várias vezes em conversa.
+1. **Chave da Anthropic** — trocada em 15/09. **Confirmar que a antiga foi
+   revogada no console.** Trocar no `.env` não impede ninguém de usar a
+   velha.
+2. **Senha do SMTP** (Hostinger) — primeiros caracteres vazaram numa saída
+   de diagnóstico.
+3. **Apikey da Evolution**.
 4. **`N8N_WEBHOOK_SECRET`** — `openssl rand -hex 32`.
 
-As chaves antigas da Anthropic que estavam nos fluxos do n8n podem ser
-revogadas.
+### 2. Desativar "Envio de Diagnósticos (8h)" no n8n
+
+Esse fluxo rodou em 16/09, e agora a API também roda às 8h. **São dois
+remetentes lendo a mesma fila.** Ontem não houve dano porque a fila estava
+vazia; com um pendente, o cliente recebe dois e-mails ou os dois marcam o
+mesmo protocolo em corrida.
+
+Desativar, não apagar.
+
+### 3. Decidir sobre os cinco processos do vigia
+
+`recorrentes.gerar`, `alertas.diarios`, `mensal.apurar`, `meta.fila` e
+`mensagens.purgar` têm `ultimo_sucesso: null` — nunca rodaram. Não há
+fluxo correspondente entre os exportados do n8n, o que sugere que nunca
+foram construídos.
+
+Enquanto ficarem assim, chega alarme a cada 6 horas. **Cinco alarmes
+crônicos ensinam a ignorar a mensagem**, e é assim que o sexto, verdadeiro,
+passa despercebido.
+
+Duas dessas consequências são promessas de produto, e valem atenção:
+
+- **`recorrentes.gerar`** — se nunca rodou, os lançamentos recorrentes dos
+  clientes nunca foram gerados. O cliente cadastra a recorrência e ela não
+  acontece.
+- **`mensagens.purgar`** — o expurgo das conversas de WhatsApp vencidas.
+  Sem ele, há dado guardado além do prazo que a política de privacidade
+  promete.
+
+As outras três são funcionalidade que falta, não promessa descumprida.
+
+---
+
+## O que está no ar e provado
+
+**Evolution → API direto.** Mensagem de WhatsApp vira lead sem n8n.
+
+**O vigia**, com um defeito importante corrigido em 16/09: ele **punia a
+pontualidade**. `ultimoPrazo` devolvia hora + tolerância e `avaliar`
+exigia sucesso posterior a isso — quem rodava às 8h03, dentro da
+tolerância de 45 minutos, era marcado como atrasado o dia inteiro. Agora a
+janela tem dois instantes: `inicio` (a hora marcada, contra a qual o
+sucesso é comparado) e `limite` (quando a cobrança começa).
+
+**Diagnósticos na API**, comercial e financeiro, com envio das 8h próprio.
+`ANTHROPIC_TIMEOUT_MS=300000` — a análise financeira não cabia em dois
+minutos.
+
+**Contas a pagar/receber consolidadas** — `vw_contas_por_pessoa` e
+`vw_contas_resumo`, com a aba "A pagar / receber" entre DRE e Diagnóstico.
+
+**Precificação** — preço mínimo por markup divisor, com margem de
+contribuição e ponto de equilíbrio por item.
+
+**Margem de contribuição com mix de produtos** — média ponderada pela
+participação de cada item no faturamento, imposto em campo próprio, MC
+bruta e líquida lado a lado.
+
+**Capital de giro (NCG)** — estrutural e realizada, com PMR e PMP medidos
+de `vw_prazos_medios`.
+
+**294 testes passando.**
+
+---
+
+## Disponível, desligado por opção
+
+**O redator sem IA** (`redator.ts`). Escreve os cinco campos do relatório
+a partir dos alertas da régua — mesmo schema Zod, em milissegundos, de
+graça. O padrão continua `MOTOR_ANALISE=ia`; `?motor=codigo` na rota
+pública usa o código.
+
+A régua, o score e os indicadores **nunca dependeram de IA** — isso é
+`regua.ts`, código puro, 49 testes. O modelo só redigia texto.
+
+Para ler o que ele produz hoje, sem deploy:
+
+```bash
+cd api && npm run redator:exemplo -- todos
+```
+
+Os textos ficam em `TEXTOS_FINANCEIRO` (15 indicadores, linhas 92–295) e
+`TEXTOS_COMERCIAL` (11 critérios, linhas 319–369) do `redator.ts`. São
+rascunhos. Regra ao editar: **toda frase carrega um número do cliente** —
+é o que separa relatório personalizado de carta-modelo, e tem teste.
 
 ---
 
 ## Em avaliação, sem decisão tomada
 
-**Segundo motor de análise (DeepSeek) para eventos presenciais.** A ideia
-é atender grandes grupos sem qualificação a custo menor. Levantado em
-15/09:
+**Módulo Contábil** — ver `CONTABILIDADE.md` e a entrada 2.0.0 do
+`ROADMAP.md`. Nasce como recurso desligado por padrão, habilitado por
+`tenant_recursos`. A fronteira técnica: hoje um lançamento é uma linha com
+uma categoria, e contabilidade exige duas contas com sinais opostos.
 
-- O custo é do modelo, não da ferramenta. n8n e API pagam os mesmos
-  tokens; **o n8n não economiza nada.**
-- Sonnet 4.6: ~US$ 0,16 por diagnóstico. DeepSeek V4.1 Flash: ~US$ 0,007.
-  Cem participantes: **R$ 87 contra R$ 4.**
-- A proporção é de 20 para 1; o absoluto é pequeno nesse volume.
-- Entra na API pelo ponto `analisar` de `dependencias.ts`. Precisaria de
-  teto e timeout próprios, e `ia_uso` teria de separar por motor.
-- **Ponto aberto:** a página de privacidade. Os dados identificáveis já
-  ficam fora do prompt, mas os números financeiros iriam para um provedor
-  na China.
+**DeepSeek para eventos** — levantado e provavelmente superado pelo
+redator sem IA: R$ 0 é melhor que R$ 0,04, e sem mandar dado financeiro
+para fora do país.
 
-**LP de evento, fora do site.** Três armadilhas levantadas:
+**LP de evento** — três armadilhas levantadas: o limite de 5 por hora é
+**por IP** (trinta pessoas no wi-fi do local saem pelo mesmo), o teto de 60
+chamadas/dia seria consumido por um encontro, e a origem precisa entrar no
+CORS antes.
 
-- **O limite de 5 por hora é por IP.** Trinta pessoas no wi-fi do local
-  saem pelo mesmo IP — a sexta em diante seria recusada. A rota de evento
-  precisa de outro limite, contado por outra coisa.
-- O teto de 60 chamadas/dia seria consumido por um único encontro.
-- A origem da LP precisa entrar no CORS **antes**, e ser testada na
-  véspera.
-- Sugerido: política de janela (não prometer PDF na hora) e um campo
-  `origem` com o nome do evento.
+**Suprimir "gratuita" do site** — amarração concreta: o e-mail de
+confirmação diz *"em PDF, sem custo"* em `dependencias.ts`.
 
-**Suprimir "gratuita" do site** (recomendação do consultor de marketing).
-Amarração concreta: o e-mail de confirmação diz *"em PDF, sem custo"* em
-`dependencias.ts`, e o template do relatório provavelmente repete. Os
-textos precisam mudar junto.
+**Tornar o cliente obrigatório em receita.** Hoje `entity_id` é opcional, e
+por isso toda a carteira aparece como "sem cliente informado". Com dados de
+demonstração não custa nada; com clientes reais vira migração.
 
 ---
 
 ## Pendências técnicas conhecidas
 
+**Node 20 no servidor, Supabase pede 22.** São avisos hoje; podem virar
+erro num `npm ci` futuro.
+
 **A confirmação ao lead espera a análise sem precisar.** Ela só diz
-"recebemos". Hoje o prospect fica um minuto sem retorno, e se o Claude
-falhar ele não recebe nem isso. Mandar logo depois da régua é mais
-correto e mais barato.
+"recebemos". Se o Claude falhar, o prospect não recebe nem isso.
 
-**O lead se perde quando a análise falha.** `analisar` lança antes de
-`gravar`, então não fica nada em `diagnosticos` — só a linha de falha em
-`execucoes`. Aconteceu duas vezes em 14/09 com o timeout. Separar as duas
-gravações resolve.
+**O lead se perde quando a análise falha** — `analisar` lança antes de
+`gravar`, então não fica nada em `diagnosticos`.
 
-**Diagnóstico perdido se o contêiner morrer no meio.** `vw_execucoes`
-marca como `travado`. Visível, não automático.
+**O corte de 66 contra o de 70** na régua comercial diverge do `corDoScore`
+do PDF.
 
-**O corte de 66 contra o de 70** na classificação comercial diverge do
-`corDoScore` do PDF. Score 67 sai com etiqueta de um patamar e cor de
-outro. Corrigir exige subir a versão da régua.
+**As tabelas de pontuação de `regua.ts` têm o defeito de protótipo** já
+corrigido em `regua-comercial.ts`: `TABELA[valor] ?? padrão` acha
+`toString`.
 
-**As tabelas de pontuação de `regua.ts` têm o mesmo defeito de protótipo**
-que foi corrigido em `regua-comercial.ts`: `TABELA[valor] ?? padrão` acha
-`toString` e `constructor`. Só entra por dado malformado, mas entra.
+**`vw_consultor_publico` é SECURITY DEFINER** — o Advisor do Supabase
+marca como crítico. "Pública" no nome e "ignora RLS" na definição é
+combinação que costuma terminar mal.
 
-**Os fluxos exportados do n8n ainda não estão no git.** Têm segredo em
-texto puro. Cópias em `/root/fluxos-n8n` e `/root/fluxos.tgz`.
+**Dois n8n rodando.** `n8n-n8n-1` em `n8n.oseiasansay.com.br` é instalação
+antiga sem uso e continua exposta.
 
-**Dois n8n rodando** (`n8n-businestriage-n8n-1` e `n8n-n8n-1`). O segundo
-é instalação antiga sem uso e continua exposto.
+**Os fluxos exportados do n8n não estão no git** — têm segredo em texto
+puro. Cópias em `/root/fluxos-n8n` e em `C:\Projetos\Claude\n8n`.
 
 ---
 
-## Comandos que valem guardar
+## Lições que valem registrar
 
-**Saúde dos processos:**
+**O `.env` acumula linhas duplicadas, e a última vence.** Antes de colar
+qualquer bloco: `grep -c ^NOME_DA_CHAVE= .env`. Diferente de zero significa
+editar, não acrescentar.
 
-```sql
-select processo, situacao, count(*) from public.vw_execucoes
-where iniciado_em > now() - interval '1 day' group by 1, 2 order by 1;
-```
+**Nada sai do PC sem commit.** Em 16/09 um `.git/index.lock` de 31 de
+agosto bloqueava `add` e `commit` em silêncio, e o `git push` respondia
+"Everything up-to-date". O build local funcionava; o servidor via código de
+duas semanas atrás.
 
-**Consumo da IA:**
+**Debounce sobre objeto não debounce nada.** Objeto literal é recriado a
+cada render, a dependência do efeito muda sempre e o valor nunca assenta. A
+correção saiu instalada e inútil até alguém testar de novo.
 
-```sql
-select dia, chamadas, recusadas, tokens_por_chamada from public.vw_ia_uso;
-```
-
-**Testar o alarme de propósito** (vale repetir de tempos em tempos —
-alarme não testado é alarme que ninguém sabe se funciona):
-
-```bash
-SEG=$(grep '^N8N_WEBHOOK_SECRET=' /opt/finance-src/api/.env | cut -d= -f2- | tr -d '"'"'"'\r')
-docker exec finance-api wget -qO- --post-data='' --header="x-n8n-secret: $SEG" \
-  http://localhost:3333/api/v1/monitor/teste
-```
-
-**Soltar a fila na mão:** a mesma coisa, trocando `/teste` por `/fila`.
-
----
-
-## Duas lições que vale registrar
-
-**O `.env` acumula linhas duplicadas, e a última vence.** Aconteceu duas
-vezes com o SMTP e uma terceira quase aconteceu hoje. Antes de colar
-qualquer bloco: `grep -c ^NOME_DA_CHAVE= .env`. Diferente de zero
-significa editar, não acrescentar.
+**`on conflict` não enxerga índice parcial.** O `upsert` de
+`mix_custos_fixos` falhava em silêncio — a tela aceitava o clique e o valor
+não mudava.
 
 **Sistema vigiado avisa; sistema não vigiado espera alguém reclamar.** A
-mesma falha das 8h levou dias para ser notada em setembro e 45 minutos
-hoje. A diferença não foi o conserto — foi o registro de execução existir.
+falha do envio das 8h levou dias para ser notada em setembro e 45 minutos
+em 16/09. A diferença não foi o conserto — foi o registro de execução
+existir.

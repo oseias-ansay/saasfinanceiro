@@ -17,6 +17,7 @@ As perguntas que continuam em aberto estão marcadas como tal.
 | **1.3.1** | Página pública do consultor por subdomínio, painel próprio e tela de gestão da rede | **No ar** |
 | **1.4.0** | CRM rastreável — funil, métricas e CAC | **No ar** · vendido como contrato anual à parte |
 | **1.4.1** | Meta Ads nos dois sentidos: verba entrando, conversões saindo | Planejada · depende de revisão da Meta |
+| **1.5.0** | **Atendimento em três degraus** — chat sobre os dados reais, chamados com prazo e alarme, agendamento por link | Em estudo · ver `ATENDIMENTO.md` |
 | **2.0.0** | **Módulo Contábil** — escrituração em partidas dobradas a partir dos lançamentos que o cliente já faz, com homologação de contador com CRC | Em estudo · ver `CONTABILIDADE.md` |
 
 **Sobre o 2.0.0.** É o único item desta tabela que ganha número de versão
