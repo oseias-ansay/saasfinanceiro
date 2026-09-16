@@ -144,4 +144,35 @@ describe('folga de caixa', () => {
     assert.equal(r.folga, -220_000);
     assert.equal(r.coberturaDias, 0);
   });
+
+  /**
+   * O defeito de 16/09: com NCG negativa, `caixa − (−50)` dava folga de
+   * 50 num caixa zerado, e a tela mostrava "R$ 50 de folga" ao lado de
+   * "cobre 0 dias de operação". Necessidade negativa quer dizer que a
+   * operação não precisa de capital — não que ela devolva capital.
+   */
+  it('NCG negativa não vira folga inventada', () => {
+    const r = calcularGiro({
+      ...base,
+      pmrDias: 0,
+      pmeDias: 0,
+      pmpDias: 30,
+      caixaDisponivel: 0,
+    });
+
+    assert.ok(r.ncgEstrutural < 0);
+    assert.equal(r.folga, 0, 'Caixa zerado não tem folga, ainda que a NCG seja negativa');
+    assert.equal(r.coberturaDias, 0);
+  });
+
+  it('com NCG negativa, a folga é o próprio caixa', () => {
+    const r = calcularGiro({
+      ...base,
+      pmrDias: 0,
+      pmeDias: 0,
+      pmpDias: 30,
+      caixaDisponivel: 90_000,
+    });
+    assert.equal(r.folga, 90_000);
+  });
 });

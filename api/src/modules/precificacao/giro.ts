@@ -168,7 +168,13 @@ export function calcularGiro(e: EntradaGiro): ResultadoGiro {
   // ---- Folga de caixa ------------------------------------------------
   const caixa = e.caixaDisponivel === undefined ? null : num(e.caixaDisponivel);
 
-  const folga = caixa === null ? null : r2(caixa - ncgEstrutural);
+  // NCG negativa significa que a operação NÃO PRECISA de capital de giro
+  // — não que ela devolva capital. Descontar um número negativo aqui
+  // inflaria a folga: um caixa zerado apareceria com "R$ 50 de folga" ao
+  // lado de "cobre 0 dias de operação", e as duas frases se contradiriam
+  // na mesma linha.
+  const necessidade = Math.max(ncgEstrutural, 0);
+  const folga = caixa === null ? null : r2(caixa - necessidade);
   const coberturaDias =
     caixa === null || desembolsoDiario <= 0 ? null : Math.floor(caixa / desembolsoDiario);
 
