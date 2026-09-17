@@ -379,6 +379,36 @@ export type Database = {
         }
         Relationships: []
       }
+      curso_modulos: {
+        Row: { id: string; curso: string; ordem: number; titulo: string; descricao: string | null; duracao_min: number | null; is_active: boolean; created_at: string; updated_at: string }
+        Insert: { id?: string; curso?: string; ordem: number; titulo: string; descricao?: string | null; duracao_min?: number | null; is_active?: boolean; created_at?: string; updated_at?: string }
+        Update: { id?: string; curso?: string; ordem?: number; titulo?: string; descricao?: string | null; duracao_min?: number | null; is_active?: boolean; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      curso_aulas: {
+        Row: { id: string; modulo_id: string; ordem: number; titulo: string; descricao: string | null; youtube_id: string | null; duracao_min: number | null; anexos: Json; is_active: boolean; created_at: string; updated_at: string }
+        Insert: { id?: string; modulo_id: string; ordem: number; titulo: string; descricao?: string | null; youtube_id?: string | null; duracao_min?: number | null; anexos?: Json; is_active?: boolean; created_at?: string; updated_at?: string }
+        Update: { id?: string; modulo_id?: string; ordem?: number; titulo?: string; descricao?: string | null; youtube_id?: string | null; duracao_min?: number | null; anexos?: Json; is_active?: boolean; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      curso_atividades: {
+        Row: { id: string; aula_id: string | null; modulo_id: string | null; ordem: number; titulo: string; enunciado: string; tipo: string; destino: string | null; config: Json; obrigatoria: boolean; is_active: boolean; created_at: string; updated_at: string }
+        Insert: { id?: string; aula_id?: string | null; modulo_id?: string | null; ordem?: number; titulo: string; enunciado: string; tipo?: string; destino?: string | null; config?: Json; obrigatoria?: boolean; is_active?: boolean; created_at?: string; updated_at?: string }
+        Update: { id?: string; aula_id?: string | null; modulo_id?: string | null; ordem?: number; titulo?: string; enunciado?: string; tipo?: string; destino?: string | null; config?: Json; obrigatoria?: boolean; is_active?: boolean; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      curso_progresso: {
+        Row: { tenant_id: string; aula_id: string; user_id: string; segundos: number; concluida: boolean; concluida_em: string | null; atualizado_em: string }
+        Insert: { tenant_id: string; aula_id: string; user_id?: string; segundos?: number; concluida?: boolean; concluida_em?: string | null; atualizado_em?: string }
+        Update: { tenant_id?: string; aula_id?: string; user_id?: string; segundos?: number; concluida?: boolean; concluida_em?: string | null; atualizado_em?: string }
+        Relationships: []
+      }
+      curso_respostas: {
+        Row: { id: string; tenant_id: string; atividade_id: string; user_id: string; resposta: Json; aplicada_em: string | null; aplicada_erro: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; tenant_id: string; atividade_id: string; user_id?: string; resposta: Json; aplicada_em?: string | null; aplicada_erro?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; tenant_id?: string; atividade_id?: string; user_id?: string; resposta?: Json; aplicada_em?: string | null; aplicada_erro?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
       cost_centers: {
         Row: {
           created_at: string
