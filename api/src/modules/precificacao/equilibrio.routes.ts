@@ -379,7 +379,7 @@ equilibrioRouter.get('/giro', async (req, res, next) => {
     const tenant = req.tenantId!;
     const pmeDias = Number(req.query.pme ?? 0) || 0;
 
-    const [revisoes, medidos, prazos, contas, kpis, dre] = await Promise.all([
+    const [revisoes, medidos, prazos, contas, kpis, dre, estoque] = await Promise.all([
       req.supabase.from('mix_custos_fixos').select('*').eq('tenant_id', tenant),
       req.supabase.rpc('fn_custos_fixos_medidos', { p_tenant: tenant }),
       req.supabase
@@ -404,6 +404,7 @@ equilibrioRouter.get('/giro', async (req, res, next) => {
         .lt('competencia', `${new Date().toISOString().slice(0, 7)}-01`)
         .order('competencia', { ascending: false })
         .limit(3),
+      estoqueInformado(req.supabase, tenant),
     ]);
 
     for (const r of [revisoes, medidos, prazos, contas, kpis, dre]) {
@@ -440,7 +441,7 @@ equilibrioRouter.get('/giro', async (req, res, next) => {
       pmeDias,
       contasAReceber: aberto('a_receber'),
       contasAPagar: aberto('a_pagar'),
-      estoque: Number(req.query.estoque ?? 0) || 0,
+      estoque: Number(req.query.estoque ?? estoque.valor ?? 0) || 0,
       caixaDisponivel: Number((kpis.data as any)?.saldo_hoje ?? 0),
     };
 
@@ -451,6 +452,8 @@ equilibrioRouter.get('/giro', async (req, res, next) => {
       // prazo pela query, a tela precisa poder dizer "o seu histórico
       // mostra outro número".
       medido: {
+        estoque: estoque.valor,
+        estoque_competencia: estoque.competencia,
         pmr_dias: media('pmr_dias'),
         pmp_dias: media('pmp_dias'),
         meses_prazos: linhasPrazo.length,
@@ -464,6 +467,40 @@ equilibrioRouter.get('/giro', async (req, res, next) => {
     next(e);
   }
 });
+
+/* ==================================================================== */
+/* O estoque informado no fechamento                                     */
+/* ==================================================================== */
+
+/**
+ * Busca o estoque mais recente que alguém informou, com a competência.
+ *
+ * Duas telas precisam do mesmo número — o ciclo e o capital de giro — e
+ * até 21/09/2026 as duas pediam para digitar e esqueciam no recarregar.
+ * Agora leem do fechamento mensal.
+ *
+ * A competência volta junto de propósito. Mostrar "estoque: R$ 144.000"
+ * sem dizer de quando ele é convida a tratar um número de três meses
+ * atrás como se fosse de hoje — e no ciclo, um estoque velho não erra
+ * para qualquer lado: quase sempre erra para menos, que é a direção que
+ * faz a empresa parecer saudável.
+ */
+async function estoqueInformado(
+  supabase: any,
+  tenant: string,
+): Promise<{ valor: number | null; competencia: string | null }> {
+  const { data, error } = await supabase
+    .from('vw_fechamento_ultimo')
+    .select('competencia, estoque_valor')
+    .eq('tenant_id', tenant)
+    .maybeSingle();
+
+  if (error) throw fromPostgrest(error);
+  if (!data || data.estoque_valor === null || data.estoque_valor === undefined) {
+    return { valor: null, competencia: null };
+  }
+  return { valor: Number(data.estoque_valor), competencia: data.competencia };
+}
 
 /* ==================================================================== */
 /* Ciclo operacional e financeiro                                        */
@@ -493,7 +530,7 @@ equilibrioRouter.get('/ciclo', async (req, res, next) => {
   try {
     const tenant = req.tenantId!;
 
-    const [dre, contas] = await Promise.all([
+    const [dre, contas, estoque] = await Promise.all([
       req.supabase
         .from('vw_dre_monthly')
         .select('competencia, receita_bruta')
@@ -505,6 +542,7 @@ equilibrioRouter.get('/ciclo', async (req, res, next) => {
         .from('vw_contas_resumo')
         .select('natureza, total_aberto')
         .eq('tenant_id', tenant),
+      estoqueInformado(req.supabase, tenant),
     ]);
 
     for (const r of [dre, contas]) {
@@ -525,6 +563,8 @@ equilibrioRouter.get('/ciclo', async (req, res, next) => {
       meses_receita: meses.length,
       a_receber: aberto('a_receber'),
       a_pagar: aberto('a_pagar'),
+      estoque: estoque.valor,
+      estoque_competencia: estoque.competencia,
     };
 
     const q = (nome: string, padrao: number) => {
@@ -534,7 +574,7 @@ equilibrioRouter.get('/ciclo', async (req, res, next) => {
 
     const entrada = {
       receitaMensal: q('receita', medido.receita_mensal),
-      estoque: q('estoque', 0),
+      estoque: q('estoque', medido.estoque ?? 0),
       aReceber: q('receber', medido.a_receber),
       aPagar: q('pagar', medido.a_pagar),
     };

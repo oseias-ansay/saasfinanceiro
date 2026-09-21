@@ -34,6 +34,31 @@ const EXPLICACAO: Record<Recurso, string> = {
 };
 
 /**
+ * Pergunta se a empresa tem o recurso, sem recusar a requisição.
+ *
+ * Existe para a rota que serve DOIS públicos. O fechamento mensal é o
+ * caso: os cinco números operacionais valem para qualquer empresa com o
+ * financeiro, e os campos de passivo e comportamento só existem por
+ * causa do diagnóstico. Um portão no router inteiro deixaria o cliente
+ * sem diagnóstico sem conseguir informar o próprio estoque — e as
+ * calculadoras que dependem dele passariam a mentir em silêncio.
+ */
+export async function temRecurso(tenantId: string, recurso: Recurso): Promise<boolean> {
+  /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+  const db = supabaseAdmin as unknown as {
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<any>;
+  };
+
+  const { data, error } = await db.rpc('fn_tenant_tem_recurso', {
+    p_tenant_id: tenantId,
+    p_recurso: recurso,
+  });
+
+  if (error) throw fromPostgrest(error);
+  return data === true;
+}
+
+/**
  * Exige um recurso na empresa ativa.
  *
  * Precisa vir depois de `requireTenant` — sem empresa resolvida não há o

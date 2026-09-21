@@ -22,16 +22,30 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireTenant, requireRole } from '../../middlewares/auth.js';
-import { requireRecurso } from '../../middlewares/recurso.js';
+import { requireRecurso, temRecurso } from '../../middlewares/recurso.js';
 import { validate } from '../../middlewares/validate.js';
 import { fromPostgrest, badRequest, notFound } from '../../lib/errors.js';
 
 export const fechamentoRouter = Router();
 
-// O diagnóstico mensal começa no Básico. O portão fica no router inteiro,
-// e não rota a rota, para que uma rota nova acrescentada aqui nasça
-// protegida em vez de nascer aberta.
-fechamentoRouter.use(requireAuth, requireTenant, requireRecurso('diagnostico_mensal'));
+// ---------------------------------------------------------------------
+// O PORTÃO DEIXOU DE SER DO ROUTER INTEIRO — 21/09/2026
+// ---------------------------------------------------------------------
+// Era `requireRecurso('diagnostico_mensal')` aqui, e fazia sentido
+// enquanto esta tela existia só para o diagnóstico.
+//
+// Deixou de fazer quando os cinco números operacionais entraram na mesma
+// linha. Estoque, atendimentos e vendas alimentam o ciclo financeiro, o
+// capital de giro e os indicadores comerciais — ferramentas do
+// Controle Financeiro, que muita empresa tem sem ter o diagnóstico
+// mensal. Com o portão no router, essa empresa não conseguiria informar
+// o próprio estoque, e a calculadora de ciclo continuaria assumindo
+// zero: um número menor que o real, na direção que engana.
+//
+// Agora o portão é por rota. `/evolucao` é a curva do score e continua
+// fechada. O resto abre para quem tem o financeiro, e a lista de campos
+// obrigatórios para confirmar é que muda conforme o recurso.
+fechamentoRouter.use(requireAuth, requireTenant, requireRecurso('financeiro'));
 
 const ESCREVE = requireRole('owner', 'admin', 'member');
 
@@ -69,7 +83,7 @@ fechamentoRouter.get('/', async (req, res, next) => {
     });
     if (errF) throw fromPostgrest(errF);
 
-    const [agregados, completude] = await Promise.all([
+    const [agregados, completude, temDiagnostico] = await Promise.all([
       db
         .from('vw_agregados_mensais')
         .select('*')
@@ -80,6 +94,7 @@ fechamentoRouter.get('/', async (req, res, next) => {
         p_tenant_id: req.tenantId!,
         p_competencia: competencia,
       }),
+      temRecurso(req.tenantId!, 'diagnostico_mensal'),
     ]);
 
     const falha = [agregados, completude].find((r) => r.error);
@@ -93,6 +108,11 @@ fechamentoRouter.get('/', async (req, res, next) => {
         // precisa distinguir isso de "lançamentos zerados".
         agregados: agregados.data ?? null,
         completude: completude.data ?? null,
+        // Decide quais campos a tela mostra e o que `confirmar` vai
+        // exigir. Vem do servidor porque é a mesma resposta dos dois
+        // lados: se o front decidisse sozinho, um dia mostraria um campo
+        // que a confirmação não pede, ou o contrário.
+        exige_diagnostico: temDiagnostico,
       },
     });
   } catch (e) {
@@ -113,6 +133,18 @@ const salvarSchema = z.object({
     .optional(),
   mistura_contas_pf_pj: z.enum(['nao', 'as_vezes', 'sim']).nullable().optional(),
   percentual_maior_cliente: z.number().min(0).max(100).nullable().optional(),
+
+  // Os cinco operacionais (SQL 43). Nenhum é obrigatório para confirmar:
+  // empresa de serviço não tem estoque, e quem ainda não conta
+  // atendimento não pode ficar impedido de fechar o mês por isso. Quem
+  // cobra a falta é a ferramenta que precisa do número, na hora em que
+  // precisa — com o nome do campo e o caminho até aqui.
+  estoque_valor: z.number().min(0).nullable().optional(),
+  imobilizado_liquido: z.number().min(0).nullable().optional(),
+  atendimentos: z.number().int().min(0).nullable().optional(),
+  vendas_numero: z.number().int().min(0).nullable().optional(),
+  clientes_novos: z.number().int().min(0).nullable().optional(),
+
   observacao: z.string().max(1000).nullable().optional(),
 });
 
@@ -173,6 +205,23 @@ fechamentoRouter.post('/confirmar', ESCREVE, validate(confirmarSchema), async (r
     if (errL) throw fromPostgrest(errL);
     if (!linha) throw notFound('Fechamento não encontrado');
 
+    // Empresa sem diagnóstico mensal confirma o mês sem passar por
+    // passivo e comportamento: esses campos existem para alimentar o
+    // score, e exigi-los de quem não recebe score seria pedir trabalho
+    // por nada — e a pessoa simplesmente pararia de fechar o mês.
+    if (!(await temRecurso(req.tenantId!, 'diagnostico_mensal'))) {
+      const { data, error } = await db
+        .from('fechamentos_mensais')
+        .update({ confirmado_em: new Date().toISOString(), confirmado_por: req.user!.id })
+        .eq('tenant_id', req.tenantId!)
+        .eq('competencia', competencia)
+        .select()
+        .maybeSingle();
+
+      if (error) throw fromPostgrest(error);
+      return res.json({ data: { fechamento: data, completude: null } });
+    }
+
     const obrigatorios: [string, unknown, string][] = [
       ['passivo_curto_prazo', linha.passivo_curto_prazo, 'o passivo de curto prazo'],
       ['passivo_longo_prazo', linha.passivo_longo_prazo, 'o passivo de longo prazo'],
@@ -226,7 +275,7 @@ fechamentoRouter.post('/confirmar', ESCREVE, validate(confirmarSchema), async (r
  * Duas leituras que a tela mostra lado a lado: a evolução (de onde saiu,
  * onde está) e a situação mês a mês (o que fechou, o que ficou pendente).
  */
-fechamentoRouter.get('/evolucao', async (req, res, next) => {
+fechamentoRouter.get('/evolucao', requireRecurso('diagnostico_mensal'), async (req, res, next) => {
   try {
     const db = semTipos(req);
 
