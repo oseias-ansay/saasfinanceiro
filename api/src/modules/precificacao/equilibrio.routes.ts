@@ -14,6 +14,7 @@ import { validate } from '../../middlewares/validate.js';
 import { fromPostgrest, notFound } from '../../lib/errors.js';
 import { calcularEquilibrio, type ProdutoEntrada } from './equilibrio.js';
 import { calcularGiro } from './giro.js';
+import { calcularCiclo } from './ciclo.js';
 
 export const equilibrioRouter = Router();
 equilibrioRouter.use(requireAuth, requireTenant);
@@ -459,6 +460,86 @@ equilibrioRouter.get('/giro', async (req, res, next) => {
       entrada,
       resultado: calcularGiro(entrada),
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ==================================================================== */
+/* Ciclo operacional e financeiro                                        */
+/* ==================================================================== */
+
+/**
+ * A calculadora da Aula 4.1, com três dos quatro valores já medidos.
+ *
+ * Receita vem do DRE, a receber e a pagar vêm de `vw_contas_resumo`. Só
+ * o estoque é digitado: a plataforma não controla estoque, e assumir
+ * zero calado subestimaria o ciclo — que é justamente o erro perigoso
+ * desta conta, porque faz a empresa parecer saudável quando não é.
+ *
+ * A receita é a MÉDIA de até três meses fechados, não o último mês.
+ *
+ * A receita aqui é a régua que converte reais em dias: todos os três
+ * prazos saem dela. Um mês fraco encurtaria os três de uma vez e o
+ * ciclo apareceria menor justamente quando piorou. É a mesma média que
+ * o ponto de equilíbrio e o capital de giro já usam — três telas
+ * divergindo sobre "quanto esta empresa fatura por mês" seria pior do
+ * que qualquer erro de arredondamento.
+ *
+ * Os quatro aceitam sobrescrita por query: a tela precisa simular "e se
+ * eu cortar 10 dias de estoque?" sem gravar nada.
+ */
+equilibrioRouter.get('/ciclo', async (req, res, next) => {
+  try {
+    const tenant = req.tenantId!;
+
+    const [dre, contas] = await Promise.all([
+      req.supabase
+        .from('vw_dre_monthly')
+        .select('competencia, receita_bruta')
+        .eq('tenant_id', tenant)
+        .lt('competencia', `${new Date().toISOString().slice(0, 7)}-01`)
+        .order('competencia', { ascending: false })
+        .limit(3),
+      req.supabase
+        .from('vw_contas_resumo')
+        .select('natureza, total_aberto')
+        .eq('tenant_id', tenant),
+    ]);
+
+    for (const r of [dre, contas]) {
+      if (r.error) throw fromPostgrest(r.error);
+    }
+
+    const meses: any[] = (dre.data ?? []) as any[];
+    const linhas: any[] = (contas.data ?? []) as any[];
+    const aberto = (nat: string) =>
+      Number(linhas.find((c) => c.natureza === nat)?.total_aberto ?? 0);
+
+    const medido = {
+      receita_mensal: meses.length
+        ? Math.round(
+            (meses.reduce((s, m) => s + Number(m.receita_bruta ?? 0), 0) / meses.length) * 100,
+          ) / 100
+        : 0,
+      meses_receita: meses.length,
+      a_receber: aberto('a_receber'),
+      a_pagar: aberto('a_pagar'),
+    };
+
+    const q = (nome: string, padrao: number) => {
+      const v = req.query[nome];
+      return v === undefined ? padrao : Number(v) || 0;
+    };
+
+    const entrada = {
+      receitaMensal: q('receita', medido.receita_mensal),
+      estoque: q('estoque', 0),
+      aReceber: q('receber', medido.a_receber),
+      aPagar: q('pagar', medido.a_pagar),
+    };
+
+    res.json({ medido, entrada, resultado: calcularCiclo(entrada) });
   } catch (e) {
     next(e);
   }
