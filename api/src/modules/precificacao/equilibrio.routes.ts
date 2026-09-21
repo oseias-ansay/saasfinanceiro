@@ -15,6 +15,7 @@ import { fromPostgrest, notFound } from '../../lib/errors.js';
 import { calcularEquilibrio, type ProdutoEntrada } from './equilibrio.js';
 import { calcularGiro } from './giro.js';
 import { calcularCiclo } from './ciclo.js';
+import { calcularProLabore } from './prolabore.js';
 
 export const equilibrioRouter = Router();
 equilibrioRouter.use(requireAuth, requireTenant);
@@ -580,6 +581,151 @@ equilibrioRouter.get('/ciclo', async (req, res, next) => {
     };
 
     res.json({ medido, entrada, resultado: calcularCiclo(entrada) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ==================================================================== */
+/* Pró-labore                                                            */
+/* ==================================================================== */
+
+const prolaboreSchema = z.object({
+  salario_mercado: z.coerce.number().min(0).nullish(),
+  moradia: z.coerce.number().min(0).nullish(),
+  alimentacao: z.coerce.number().min(0).nullish(),
+  transporte: z.coerce.number().min(0).nullish(),
+  saude_educacao: z.coerce.number().min(0).nullish(),
+  outros_essenciais: z.coerce.number().min(0).nullish(),
+  percentual_resultado: z.coerce.number().min(1).max(100).optional(),
+  retirada_informada: z.coerce.number().min(0).nullish(),
+});
+
+/**
+ * Os três métodos da aula 1.4, com o terceiro já medido.
+ *
+ * O método 3 sai de `vw_prolabore_mensal`, que separa o pró-labore
+ * (dentro do resultado) da retirada (abaixo dele). Sem essa separação a
+ * conta erraria nos dois sentidos ao mesmo tempo: o resultado apareceria
+ * menor do que é e a retirada, menor também.
+ *
+ * A margem de contribuição vem do mix de produtos quando existe. É ela
+ * que converte "falta resultado" em "falta vender" — e é a única ligação
+ * desta tela com o Módulo 3.
+ */
+equilibrioRouter.get('/prolabore', async (req, res, next) => {
+  try {
+    const tenant = req.tenantId!;
+    const hoje = `${new Date().toISOString().slice(0, 7)}-01`;
+
+    // `prolabore_config` e `vw_prolabore_mensal` nasceram no SQL 44 e
+    // ainda não estão no `database.types.ts` gerado. O apelido concentra
+    // a falta de tipo nestas duas rotas, em vez de espalhar `as never`
+    // pelas consultas — que silenciaria o compilador sem verificar nada.
+    const db = req.supabase as unknown as { from: (t: string) => any };
+
+    const [cfg, serie, painel] = await Promise.all([
+      db
+        .from('prolabore_config')
+        .select('*')
+        .eq('tenant_id', tenant)
+        .maybeSingle(),
+      db
+        .from('vw_prolabore_mensal')
+        .select('competencia, resultado_antes_retirada, retirada_total, pro_labore')
+        .eq('tenant_id', tenant)
+        .lt('competencia', hoje)
+        .order('competencia', { ascending: false })
+        .limit(3),
+      req.supabase
+        .from('mix_produtos')
+        .select('preco, custo_direto, imposto_fixo, imposto_pct, variaveis_pct, participacao_pct')
+        .eq('tenant_id', tenant),
+    ]);
+
+    for (const r of [cfg, serie, painel]) {
+      if (r.error) throw fromPostgrest(r.error);
+    }
+
+    const c: any = cfg.data ?? {};
+    const meses: any[] = (serie.data ?? []) as any[];
+
+    // A retirada do mês mais recente, não a média: a pergunta da aula é
+    // "quanto você retira HOJE por mês", e uma média de três meses
+    // esconderia um aumento recente — que é justamente o que costuma
+    // estar por trás do problema.
+    const retiradaMedida = meses.length ? Number(meses[0].retirada_total ?? 0) : null;
+
+    // Índice ponderado do mix. Reaproveita o mesmo cálculo do ponto de
+    // equilíbrio para as duas telas não discordarem sobre a margem.
+    const produtos = ((painel.data ?? []) as any[]).map((p) => ({
+      nome: '',
+      preco: Number(p.preco ?? 0),
+      custoDireto: Number(p.custo_direto ?? 0),
+      impostoFixo: Number(p.imposto_fixo ?? 0),
+      impostoPct: Number(p.imposto_pct ?? 0),
+      variaveisPct: Number(p.variaveis_pct ?? 0),
+      participacaoPct: Number(p.participacao_pct ?? 0),
+    })) as ProdutoEntrada[];
+
+    const mix = produtos.length
+      ? calcularEquilibrio({ produtos, custosFixosMensais: 0, faturamentoAtual: 0 })
+      : null;
+    const margemMedida = mix?.indiceMargemContribuicao ?? null;
+
+    const q = (nome: string): number | null => {
+      const v = req.query[nome];
+      return v === undefined ? null : Number(v) || 0;
+    };
+
+    const entrada = {
+      salarioMercado: q('salario') ?? c.salario_mercado ?? null,
+      moradia: q('moradia') ?? c.moradia ?? null,
+      alimentacao: q('alimentacao') ?? c.alimentacao ?? null,
+      transporte: q('transporte') ?? c.transporte ?? null,
+      saudeEducacao: q('saude') ?? c.saude_educacao ?? null,
+      outrosEssenciais: q('outros') ?? c.outros_essenciais ?? null,
+      resultados: meses.map((m) => Number(m.resultado_antes_retirada ?? 0)),
+      percentualResultado: q('percentual') ?? c.percentual_resultado ?? 60,
+      retiradaAtual: q('retirada') ?? c.retirada_informada ?? retiradaMedida,
+      margemContribuicaoPct: q('margem') ?? margemMedida,
+    };
+
+    res.json({
+      config: cfg.data ?? null,
+      medido: {
+        meses: meses.map((m) => ({
+          competencia: m.competencia,
+          resultado_antes_retirada: Number(m.resultado_antes_retirada ?? 0),
+          pro_labore: Number(m.pro_labore ?? 0),
+        })),
+        retirada_total: retiradaMedida,
+        margem_contribuicao_pct: margemMedida,
+      },
+      entrada,
+      resultado: calcularProLabore(entrada),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Grava o piso da vida e os parâmetros. Upsert: uma linha por empresa. */
+equilibrioRouter.put('/prolabore', ESCREVE, validate(prolaboreSchema), async (req, res, next) => {
+  try {
+    const db = req.supabase as unknown as { from: (t: string) => any };
+
+    const { data, error } = await db
+      .from('prolabore_config')
+      .upsert(
+        { ...(req.body as object), tenant_id: req.tenantId! },
+        { onConflict: 'tenant_id' },
+      )
+      .select('*')
+      .single();
+
+    if (error) throw fromPostgrest(error);
+    res.json({ data });
   } catch (e) {
     next(e);
   }
