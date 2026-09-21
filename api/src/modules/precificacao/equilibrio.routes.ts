@@ -16,6 +16,7 @@ import { calcularEquilibrio, type ProdutoEntrada } from './equilibrio.js';
 import { calcularGiro } from './giro.js';
 import { calcularCiclo } from './ciclo.js';
 import { calcularProLabore } from './prolabore.js';
+import { calcularProvisao } from './provisao.js';
 
 export const equilibrioRouter = Router();
 equilibrioRouter.use(requireAuth, requireTenant);
@@ -726,6 +727,143 @@ equilibrioRouter.put('/prolabore', ESCREVE, validate(prolaboreSchema), async (re
 
     if (error) throw fromPostgrest(error);
     res.json({ data });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ==================================================================== */
+/* Provisão: imposto, 13º/férias e reserva de emergência                 */
+/* ==================================================================== */
+
+/**
+ * A calculadora da aula 4.5, com os cinco campos medidos.
+ *
+ * Nenhum precisa ser digitado, e é essa a diferença entre a planilha e a
+ * plataforma: a receita e a alíquota saem do DRE, a folha sai das
+ * categorias marcadas com `papel = 'folha'` (SQL 44), o desembolso fixo
+ * sai dos custos fixos revisados mais a parcela de dívidas do
+ * fechamento, e o saldo em caixa sai das contas bancárias.
+ *
+ * ---------------------------------------------------------------------
+ * A ALÍQUOTA MEDIDA É APROXIMAÇÃO, E A TELA DIZ ISSO
+ * ---------------------------------------------------------------------
+ * Ela sai de `deducoes / receita_bruta`. No plano de contas padrão,
+ * `deducao` guarda impostos sobre venda E devoluções — então a alíquota
+ * medida sobe quando houve devolução no mês, e a provisão de imposto
+ * sairia maior que a devida.
+ *
+ * Errar para mais numa provisão é o lado seguro: sobra dinheiro
+ * separado. Mesmo assim o campo é editável, e a própria aula manda
+ * perguntar a alíquota EFETIVA ao contador em vez de deduzi-la.
+ *
+ * ---------------------------------------------------------------------
+ * A DEPRECIAÇÃO NÃO DEVERIA ESTAR NO DESEMBOLSO
+ * ---------------------------------------------------------------------
+ * Depreciação é despesa, não saída de caixa, e a aula é explícita ao
+ * pedir "fixo SEM depreciação". A plataforma não sabe qual categoria é
+ * depreciação — mas o painel de custos fixos já tem a caixinha
+ * "incluir" por item, e desmarcar ali resolve, aqui e nas outras duas
+ * ferramentas que usam o mesmo total.
+ */
+equilibrioRouter.get('/provisao', async (req, res, next) => {
+  try {
+    const tenant = req.tenantId!;
+    const hoje = `${new Date().toISOString().slice(0, 7)}-01`;
+    const db = req.supabase as unknown as { from: (t: string) => any };
+
+    const [revisoes, medidos, dre, folhaSerie, kpis, fech] = await Promise.all([
+      req.supabase.from('mix_custos_fixos').select('*').eq('tenant_id', tenant),
+      req.supabase.rpc('fn_custos_fixos_medidos', { p_tenant: tenant }),
+      req.supabase
+        .from('vw_dre_monthly')
+        .select('competencia, receita_bruta, deducoes')
+        .eq('tenant_id', tenant)
+        .lt('competencia', hoje)
+        .order('competencia', { ascending: false })
+        .limit(3),
+      db
+        .from('vw_prolabore_mensal')
+        .select('competencia, folha')
+        .eq('tenant_id', tenant)
+        .lt('competencia', hoje)
+        .order('competencia', { ascending: false })
+        .limit(3),
+      req.supabase
+        .from('vw_dashboard_kpis')
+        .select('saldo_hoje')
+        .eq('tenant_id', tenant)
+        .maybeSingle(),
+      db
+        .from('fechamentos_mensais')
+        .select('competencia, parcela_dividas_mensal')
+        .eq('tenant_id', tenant)
+        .not('parcela_dividas_mensal', 'is', null)
+        .order('competencia', { ascending: false })
+        .limit(1),
+    ]);
+
+    for (const r of [revisoes, dre, folhaSerie, kpis, fech]) {
+      if (r.error) throw fromPostgrest(r.error);
+    }
+
+    const { total: totalFixos } = montarCustosFixos(
+      (medidos.data ?? []) as any[],
+      (revisoes.data ?? []) as any[],
+    );
+
+    const mesesDre: any[] = (dre.data ?? []) as any[];
+    const media = (campo: string) =>
+      mesesDre.length
+        ? mesesDre.reduce((s, m) => s + Number(m?.[campo] ?? 0), 0) / mesesDre.length
+        : 0;
+
+    const receitaMedia = Math.round(media('receita_bruta') * 100) / 100;
+    const deducoesMedia = media('deducoes');
+    const aliquotaMedida =
+      receitaMedia > 0 ? Math.round((deducoesMedia / receitaMedia) * 10000) / 100 : 0;
+
+    const mesesFolha: any[] = (folhaSerie.data ?? []) as any[];
+    const folhaMedida = mesesFolha.length
+      ? Math.round(
+          (mesesFolha.reduce((s, m) => s + Number(m.folha ?? 0), 0) / mesesFolha.length) * 100,
+        ) / 100
+      : 0;
+
+    const parcela = Number((fech.data as any[])?.[0]?.parcela_dividas_mensal ?? 0);
+    const desembolsoMedido = Math.round((totalFixos + parcela) * 100) / 100;
+    const caixa = Number((kpis.data as any)?.saldo_hoje ?? 0);
+
+    const q = (nome: string, padrao: number) => {
+      const v = req.query[nome];
+      return v === undefined ? padrao : Number(v) || 0;
+    };
+
+    const entrada = {
+      receitaMensal: q('receita', receitaMedia),
+      aliquotaPct: q('aliquota', aliquotaMedida),
+      folhaMensal: q('folha', folhaMedida),
+      desembolsoFixoMensal: q('desembolso', desembolsoMedido),
+      saldoCaixa: q('caixa', caixa),
+    };
+
+    res.json({
+      medido: {
+        receita_mensal: receitaMedia,
+        meses_dre: mesesDre.length,
+        aliquota_pct: aliquotaMedida,
+        folha_mensal: folhaMedida,
+        // Zero aqui quase sempre significa categoria sem `papel`, não
+        // empresa sem funcionário. A tela precisa saber distinguir.
+        folha_tem_categoria_marcada: mesesFolha.some((m) => Number(m.folha ?? 0) > 0),
+        custos_fixos: totalFixos,
+        parcela_dividas: parcela,
+        desembolso_fixo: desembolsoMedido,
+        saldo_caixa: caixa,
+      },
+      entrada,
+      resultado: calcularProvisao(entrada),
+    });
   } catch (e) {
     next(e);
   }
