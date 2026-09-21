@@ -23,6 +23,7 @@ import { calcularIndices } from './indices.js';
 import { calcularPlanoCiclo } from './planociclo.js';
 import { calcularHoraProdutiva } from './horaprodutiva.js';
 import { calcularCentros } from './centros.js';
+import { calcularFluxo } from './fluxo.js';
 
 export const equilibrioRouter = Router();
 equilibrioRouter.use(requireAuth, requireTenant);
@@ -1822,6 +1823,182 @@ equilibrioRouter.put('/centros/rateio', ESCREVE, validate(rateioSchema), async (
 
     if (error) throw fromPostgrest(error);
     if (!data) return next(notFound('Centro de custo não encontrado'));
+    res.json({ data });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ==================================================================== */
+/* Fluxo de caixa projetado — 12 semanas                                 */
+/* ==================================================================== */
+
+const ajusteSchema = z.object({
+  semana_inicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use AAAA-MM-DD'),
+  entradas: z.coerce.number().min(0).nullable(),
+  saidas: z.coerce.number().min(0).nullable(),
+  observacao: z.string().trim().max(300).nullish(),
+});
+
+/** Segunda-feira da semana de uma data, em AAAA-MM-DD. */
+function segundaDa(d: Date): string {
+  const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  // getUTCDay: 0 = domingo. Queremos segunda como início.
+  const dia = (x.getUTCDay() + 6) % 7;
+  x.setUTCDate(x.getUTCDate() - dia);
+  return x.toISOString().slice(0, 10);
+}
+
+function somaSemanas(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n * 7);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * A janela de 12 semanas da aula 2.4.
+ *
+ * Semanas, não meses — o mês esconde a quebra: pode fechar positivo e
+ * ter passado quinze dias no vermelho, com fornecedor esperando e
+ * cheque especial usado.
+ *
+ * Cada semana recebe o que JÁ ESTÁ lançado com vencimento; quando não
+ * há nada lançado, entra a média das últimas 13 semanas liquidadas. Os
+ * dois nunca são somados sem serem declarados — a resposta diz a origem
+ * de cada número, e a tela mostra isso.
+ */
+equilibrioRouter.get('/fluxo', async (req, res, next) => {
+  try {
+    const tenant = req.tenantId!;
+    const db = req.supabase as unknown as { from: (t: string) => any };
+
+    const primeira = segundaDa(new Date());
+    const limite = somaSemanas(primeira, 12);
+
+    const [titulos, media, ajustes, kpis] = await Promise.all([
+      db
+        .from('vw_fluxo_semanal')
+        .select('*')
+        .eq('tenant_id', tenant)
+        .gte('semana_inicio', primeira)
+        .lt('semana_inicio', limite),
+      db.from('vw_fluxo_media_semanal').select('*').eq('tenant_id', tenant).maybeSingle(),
+      db
+        .from('fluxo_ajustes')
+        .select('*')
+        .eq('tenant_id', tenant)
+        .gte('semana_inicio', primeira)
+        .lt('semana_inicio', limite),
+      req.supabase
+        .from('vw_dashboard_kpis')
+        .select('saldo_hoje')
+        .eq('tenant_id', tenant)
+        .maybeSingle(),
+    ]);
+
+    for (const r of [titulos, media, ajustes, kpis]) {
+      if (r.error) throw fromPostgrest(r.error);
+    }
+
+    const porSemana = new Map<string, any>(
+      ((titulos.data ?? []) as any[]).map((t) => [String(t.semana_inicio).slice(0, 10), t]),
+    );
+    const ajustePorSemana = new Map<string, any>(
+      ((ajustes.data ?? []) as any[]).map((a) => [String(a.semana_inicio).slice(0, 10), a]),
+    );
+
+    const m: any = media.data ?? {};
+
+    const semanas = Array.from({ length: 12 }, (_, i) => {
+      const inicio = somaSemanas(primeira, i);
+      const t = porSemana.get(inicio) ?? {};
+      const a = ajustePorSemana.get(inicio) ?? {};
+
+      return {
+        numero: i + 1,
+        inicio,
+        entradasLancadas: Number(t.entradas ?? 0),
+        saidasLancadas: Number(t.saidas ?? 0),
+        entradasAjustadas: a.entradas === null || a.entradas === undefined
+          ? null
+          : Number(a.entradas),
+        saidasAjustadas: a.saidas === null || a.saidas === undefined ? null : Number(a.saidas),
+        observacao: (a.observacao ?? null) as string | null,
+      };
+    });
+
+    const entrada = {
+      saldoInicial: Number(req.query.saldo ?? (kpis.data as any)?.saldo_hoje ?? 0),
+      semanas,
+      entradaSemanalMedia: Number(req.query.mediaEntrada ?? m.entrada_media ?? 0),
+      saidaSemanalMedia: Number(req.query.mediaSaida ?? m.saida_media ?? 0),
+      semanasDeHistorico: Number(m.semanas ?? 0),
+    };
+
+    const primeiraLinha = porSemana.get(primeira) ?? {};
+
+    res.json({
+      medido: {
+        saldo_hoje: Number((kpis.data as any)?.saldo_hoje ?? 0),
+        entrada_media: Number(m.entrada_media ?? 0),
+        saida_media: Number(m.saida_media ?? 0),
+        semanas_historico: Number(m.semanas ?? 0),
+        // O vencido está todo dentro da primeira semana. A tela precisa
+        // dizer isso, porque um saldo de semana 1 inflado por títulos
+        // atrasados não é o caixa da semana que vem.
+        entradas_vencidas: Number(primeiraLinha.entradas_vencidas ?? 0),
+        saidas_vencidas: Number(primeiraLinha.saidas_vencidas ?? 0),
+      },
+      entrada,
+      resultado: calcularFluxo(entrada),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * Grava — ou apaga — o ajuste de uma semana.
+ *
+ * Tudo nulo apaga a linha em vez de gravar três nulos. Uma linha vazia
+ * ocuparia espaço e, pior, faria a semana parecer "já mexida" numa
+ * futura tela de histórico.
+ */
+equilibrioRouter.put('/fluxo/ajuste', ESCREVE, validate(ajusteSchema), async (req, res, next) => {
+  try {
+    const db = req.supabase as unknown as { from: (t: string) => any };
+    const corpo = req.body as z.infer<typeof ajusteSchema>;
+
+    const semAjuste =
+      corpo.entradas === null && corpo.saidas === null && !corpo.observacao?.trim();
+
+    if (semAjuste) {
+      const { error } = await db
+        .from('fluxo_ajustes')
+        .delete()
+        .eq('tenant_id', req.tenantId!)
+        .eq('semana_inicio', corpo.semana_inicio);
+
+      if (error) throw fromPostgrest(error);
+      return res.status(204).end();
+    }
+
+    const { data, error } = await db
+      .from('fluxo_ajustes')
+      .upsert(
+        {
+          tenant_id: req.tenantId!,
+          semana_inicio: corpo.semana_inicio,
+          entradas: corpo.entradas,
+          saidas: corpo.saidas,
+          observacao: corpo.observacao?.trim() || null,
+        },
+        { onConflict: 'tenant_id,semana_inicio' },
+      )
+      .select('*')
+      .single();
+
+    if (error) throw fromPostgrest(error);
     res.json({ data });
   } catch (e) {
     next(e);
