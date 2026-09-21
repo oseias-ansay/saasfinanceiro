@@ -19,6 +19,7 @@ import { calcularProLabore } from './prolabore.js';
 import { calcularProvisao } from './provisao.js';
 import { calcularComercial } from './comercial.js';
 import { calcularOrcamento } from './orcamento.js';
+import { calcularIndices } from './indices.js';
 
 export const equilibrioRouter = Router();
 equilibrioRouter.use(requireAuth, requireTenant);
@@ -1223,6 +1224,130 @@ equilibrioRouter.put('/orcamento/teto', ESCREVE, validate(tetoSchema), async (re
 
     if (error) throw fromPostgrest(error);
     res.json({ data });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ==================================================================== */
+/* Os três índices                                                       */
+/* ==================================================================== */
+
+/**
+ * Margem, lucratividade e rentabilidade — a aula 4.8, sem digitar nada.
+ *
+ * Esta é a única ferramenta que não pede número nenhum: as dez entradas
+ * da planilha já existem na plataforma depois do SQL 43 e do 44. É o
+ * pagamento do investimento feito no Fechamento do mês.
+ *
+ * ---------------------------------------------------------------------
+ * O DENOMINADOR DA LIQUIDEZ
+ * ---------------------------------------------------------------------
+ * A planilha pede "a pagar no ano" como campo solto. Aqui ele é
+ * fornecedores em aberto mais o passivo de curto prazo do fechamento —
+ * por definição, o que vence nos próximos doze meses. O passivo de
+ * longo prazo fica de fora: ele entra no endividamento, não na liquidez.
+ */
+equilibrioRouter.get('/indices', async (req, res, next) => {
+  try {
+    const tenant = req.tenantId!;
+    const hoje = `${new Date().toISOString().slice(0, 7)}-01`;
+    const db = req.supabase as unknown as { from: (t: string) => any };
+
+    const [dre, prolabore, fechOperacional, fechPassivo, contas, kpis] = await Promise.all([
+      req.supabase
+        .from('vw_dre_monthly')
+        .select('competencia, receita_bruta, margem_contribuicao, resultado_liquido')
+        .eq('tenant_id', tenant)
+        .lt('competencia', hoje)
+        .order('competencia', { ascending: false })
+        .limit(1),
+      db
+        .from('vw_prolabore_mensal')
+        .select('competencia, pro_labore')
+        .eq('tenant_id', tenant)
+        .lt('competencia', hoje)
+        .order('competencia', { ascending: false })
+        .limit(1),
+      db
+        .from('vw_fechamento_ultimo')
+        .select('competencia, estoque_valor, imobilizado_liquido')
+        .eq('tenant_id', tenant)
+        .maybeSingle(),
+      db
+        .from('fechamentos_mensais')
+        .select('competencia, passivo_curto_prazo, passivo_longo_prazo')
+        .eq('tenant_id', tenant)
+        .not('passivo_curto_prazo', 'is', null)
+        .order('competencia', { ascending: false })
+        .limit(1),
+      req.supabase
+        .from('vw_contas_resumo')
+        .select('natureza, total_aberto')
+        .eq('tenant_id', tenant),
+      req.supabase
+        .from('vw_dashboard_kpis')
+        .select('saldo_hoje')
+        .eq('tenant_id', tenant)
+        .maybeSingle(),
+    ]);
+
+    for (const r of [dre, prolabore, fechOperacional, fechPassivo, contas, kpis]) {
+      if (r.error) throw fromPostgrest(r.error);
+    }
+
+    const mes: any = (dre.data as any[])?.[0] ?? {};
+    const pl: any = (prolabore.data as any[])?.[0] ?? {};
+    const op: any = fechOperacional.data ?? {};
+    const pas: any = (fechPassivo.data as any[])?.[0] ?? {};
+
+    const linhas: any[] = (contas.data ?? []) as any[];
+    const aberto = (nat: string) =>
+      Number(linhas.find((c) => c.natureza === nat)?.total_aberto ?? 0);
+
+    const fornecedores = aberto('a_pagar');
+    const passivoCurto = Number(pas.passivo_curto_prazo ?? 0);
+    const passivoLongo = Number(pas.passivo_longo_prazo ?? 0);
+
+    const q = (nome: string, padrao: number) => {
+      const v = req.query[nome];
+      return v === undefined ? padrao : Number(v) || 0;
+    };
+
+    const entrada = {
+      faturamentoMensal: q('faturamento', Number(mes.receita_bruta ?? 0)),
+      margemContribuicao: q('margem', Number(mes.margem_contribuicao ?? 0)),
+      lucroMensal: q('lucro', Number(mes.resultado_liquido ?? 0)),
+      proLabore: q('prolabore', Number(pl.pro_labore ?? 0)),
+
+      estoque: q('estoque', Number(op.estoque_valor ?? 0)),
+      clientesAReceber: q('receber', aberto('a_receber')),
+      imobilizado: q('imobilizado', Number(op.imobilizado_liquido ?? 0)),
+      saldoCaixa: q('caixa', Number((kpis.data as any)?.saldo_hoje ?? 0)),
+
+      fornecedoresAPagar: q('pagar', fornecedores),
+      // O saldo devedor é o principal que falta amortizar: curto mais
+      // longo prazo. O fechamento guarda os dois separados porque a
+      // liquidez só olha o curto.
+      saldoDevedor: q('divida', passivoCurto + passivoLongo),
+      aPagarNoAno: q('anual', fornecedores + passivoCurto),
+    };
+
+    res.json({
+      medido: {
+        competencia_dre: mes.competencia ?? null,
+        competencia_fechamento: op.competencia ?? null,
+        competencia_passivo: pas.competencia ?? null,
+        tem_estoque_informado: op.estoque_valor !== null && op.estoque_valor !== undefined,
+        tem_imobilizado_informado:
+          op.imobilizado_liquido !== null && op.imobilizado_liquido !== undefined,
+        tem_passivo_informado: pas.passivo_curto_prazo !== null && pas.passivo_curto_prazo !== undefined,
+        passivo_curto_prazo: passivoCurto,
+        passivo_longo_prazo: passivoLongo,
+      },
+      entrada,
+      resultado: calcularIndices(entrada),
+    });
   } catch (e) {
     next(e);
   }
