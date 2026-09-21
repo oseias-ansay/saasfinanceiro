@@ -18,6 +18,7 @@ import { calcularCiclo } from './ciclo.js';
 import { calcularProLabore } from './prolabore.js';
 import { calcularProvisao } from './provisao.js';
 import { calcularComercial } from './comercial.js';
+import { calcularOrcamento } from './orcamento.js';
 
 export const equilibrioRouter = Router();
 equilibrioRouter.use(requireAuth, requireTenant);
@@ -993,6 +994,230 @@ equilibrioRouter.put('/comercial', ESCREVE, validate(comercialSchema), async (re
     const { data, error } = await db
       .from('comercial_config')
       .upsert({ ...(req.body as object), tenant_id: req.tenantId! }, { onConflict: 'tenant_id' })
+      .select('*')
+      .single();
+
+    if (error) throw fromPostgrest(error);
+    res.json({ data });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ==================================================================== */
+/* Orçamento anual                                                       */
+/* ==================================================================== */
+
+const cenarioSchema = z.object({
+  cenario: z.enum(['pessimista', 'realista', 'otimista']),
+  atendimentos: z.coerce.number().int().min(0).nullish(),
+  conversao_pct: z.coerce.number().min(0).max(100).nullish(),
+  ticket: z.coerce.number().min(0).nullish(),
+  margem_pct: z.coerce.number().min(0).max(100).nullish(),
+});
+
+const tetoSchema = z.object({
+  category_id: z.string().uuid(),
+  /** Nulo apaga o teto daquele grupo. */
+  teto_pct: z.coerce.number().min(0).max(100).nullable(),
+});
+
+/**
+ * Os três cenários da aula 4.6, com o realista já preenchido.
+ *
+ * O realista nasce do que a empresa faz HOJE — atendimentos, conversão
+ * e ticket dos indicadores comerciais, margem do mix. É a diferença
+ * entre abrir a tela e encarar nove campos vazios e abrir a tela e
+ * ajustar dois números.
+ *
+ * O custo fixo é o mesmo nos três, e é o total dos custos fixos
+ * revisados. Não somo a parcela de dívidas aqui, diferente da provisão:
+ * a amortização do principal não é despesa e não entra num orçamento de
+ * resultado — só o juro entra, e ele já está na categoria Financeira.
+ */
+equilibrioRouter.get('/orcamento', async (req, res, next) => {
+  try {
+    const tenant = req.tenantId!;
+    const hoje = `${new Date().toISOString().slice(0, 7)}-01`;
+    const db = req.supabase as unknown as { from: (t: string) => any };
+
+    const [cenarios, tetos, despesas, revisoes, medidos, fech, dre, mixProdutos] =
+      await Promise.all([
+        db.from('orcamento_cenarios').select('*').eq('tenant_id', tenant),
+        db.from('orcamento_tetos').select('*').eq('tenant_id', tenant),
+        db.from('vw_despesas_por_categoria').select('*').eq('tenant_id', tenant),
+        req.supabase.from('mix_custos_fixos').select('*').eq('tenant_id', tenant),
+        req.supabase.rpc('fn_custos_fixos_medidos', { p_tenant: tenant }),
+        db
+          .from('vw_fechamento_ultimo')
+          .select('competencia, atendimentos, vendas_numero')
+          .eq('tenant_id', tenant)
+          .maybeSingle(),
+        req.supabase
+          .from('vw_dre_monthly')
+          .select('competencia, receita_bruta')
+          .eq('tenant_id', tenant)
+          .lt('competencia', hoje)
+          .order('competencia', { ascending: false })
+          .limit(3),
+        req.supabase
+          .from('mix_produtos')
+          .select('preco, custo_direto, imposto_fixo, imposto_pct, variaveis_pct, participacao_pct')
+          .eq('tenant_id', tenant),
+      ]);
+
+    for (const r of [cenarios, tetos, despesas, revisoes, fech, dre, mixProdutos]) {
+      if (r.error) throw fromPostgrest(r.error);
+    }
+
+    const { total: custoFixo } = montarCustosFixos(
+      (medidos.data ?? []) as any[],
+      (revisoes.data ?? []) as any[],
+    );
+
+    /* ---------------------------------------- O realista de hoje */
+    const mesesDre: any[] = (dre.data ?? []) as any[];
+    const receitaMedia = mesesDre.length
+      ? mesesDre.reduce((s, m) => s + Number(m.receita_bruta ?? 0), 0) / mesesDre.length
+      : 0;
+
+    const f: any = fech.data ?? {};
+    const atendimentosHoje = Number(f.atendimentos ?? 0);
+    const vendasHoje = Number(f.vendas_numero ?? 0);
+
+    const conversaoHoje =
+      atendimentosHoje > 0 && vendasHoje > 0
+        ? Math.round((vendasHoje / atendimentosHoje) * 10000) / 100
+        : 0;
+    const ticketHoje = vendasHoje > 0 ? Math.round((receitaMedia / vendasHoje) * 100) / 100 : 0;
+
+    const produtos = ((mixProdutos.data ?? []) as any[]).map((p) => ({
+      nome: '',
+      preco: Number(p.preco ?? 0),
+      custoDireto: Number(p.custo_direto ?? 0),
+      impostoFixo: Number(p.imposto_fixo ?? 0),
+      impostoPct: Number(p.imposto_pct ?? 0),
+      variaveisPct: Number(p.variaveis_pct ?? 0),
+      participacaoPct: Number(p.participacao_pct ?? 0),
+    })) as ProdutoEntrada[];
+
+    const mix = produtos.length
+      ? calcularEquilibrio({ produtos, custosFixosMensais: 0, faturamentoAtual: 0 })
+      : null;
+    const margemMedida = mix?.indiceMargemContribuicao ?? 0;
+
+    const salvos = new Map<string, any>(
+      ((cenarios.data ?? []) as any[]).map((c) => [c.cenario, c]),
+    );
+
+    // Só o realista herda o desempenho de hoje. Pessimista e otimista
+    // nascem vazios de propósito: são escolha de gestão, e preenchê-los
+    // com uma variação automática daria a impressão de que a plataforma
+    // sabe algo sobre o ano que vem que ela não sabe.
+    const doCenario = (nome: string) => {
+      const s = salvos.get(nome) ?? {};
+      const ehRealista = nome === 'realista';
+      return {
+        atendimentos: Number(s.atendimentos ?? (ehRealista ? atendimentosHoje : 0)),
+        conversaoPct: Number(s.conversao_pct ?? (ehRealista ? conversaoHoje : 0)),
+        ticket: Number(s.ticket ?? (ehRealista ? ticketHoje : 0)),
+        margemPct: Number(s.margem_pct ?? margemMedida),
+      };
+    };
+
+    /* ------------------------------------------------- Os tetos */
+    const pctPorCategoria = new Map<string, number>(
+      ((tetos.data ?? []) as any[]).map((t) => [t.category_id, Number(t.teto_pct)]),
+    );
+
+    const listaTetos = ((despesas.data ?? []) as any[])
+      .map((d) => ({
+        categoriaId: d.category_id as string,
+        nome: d.categoria as string,
+        gastoAtual: Number(d.media_mensal ?? 0),
+        tetoPct: pctPorCategoria.has(d.category_id)
+          ? pctPorCategoria.get(d.category_id)!
+          : null,
+      }))
+      .sort((a, b) => b.gastoAtual - a.gastoAtual);
+
+    const entrada = {
+      pessimista: doCenario('pessimista'),
+      realista: doCenario('realista'),
+      otimista: doCenario('otimista'),
+      custoFixoMensal: Number(req.query.fixo ?? custoFixo) || 0,
+      tetos: listaTetos,
+    };
+
+    res.json({
+      cenarios_salvos: cenarios.data ?? [],
+      medido: {
+        atendimentos: f.atendimentos ?? null,
+        vendas: f.vendas_numero ?? null,
+        competencia_contagens: f.competencia ?? null,
+        conversao_pct: conversaoHoje,
+        ticket: ticketHoje,
+        margem_contribuicao_pct: mix ? margemMedida : null,
+        custo_fixo_mensal: custoFixo,
+        receita_media: Math.round(receitaMedia * 100) / 100,
+        meses_dre: mesesDre.length,
+      },
+      entrada,
+      resultado: calcularOrcamento(entrada),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Grava um cenário. Upsert por (tenant, cenário) — sempre três linhas. */
+equilibrioRouter.put('/orcamento/cenario', ESCREVE, validate(cenarioSchema), async (req, res, next) => {
+  try {
+    const db = req.supabase as unknown as { from: (t: string) => any };
+
+    const { data, error } = await db
+      .from('orcamento_cenarios')
+      .upsert({ ...(req.body as object), tenant_id: req.tenantId! }, { onConflict: 'tenant_id,cenario' })
+      .select('*')
+      .single();
+
+    if (error) throw fromPostgrest(error);
+    res.json({ data });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * Define ou remove o teto de um grupo.
+ *
+ * `teto_pct` nulo apaga a linha em vez de gravar zero. Zero seria um
+ * teto de zero reais — "não pode gastar nada" — e não "sem limite
+ * definido". A diferença aparece na tela como folga negativa de todo o
+ * gasto do grupo, o que pareceria erro do sistema.
+ */
+equilibrioRouter.put('/orcamento/teto', ESCREVE, validate(tetoSchema), async (req, res, next) => {
+  try {
+    const db = req.supabase as unknown as { from: (t: string) => any };
+    const corpo = req.body as z.infer<typeof tetoSchema>;
+
+    if (corpo.teto_pct === null) {
+      const { error } = await db
+        .from('orcamento_tetos')
+        .delete()
+        .eq('tenant_id', req.tenantId!)
+        .eq('category_id', corpo.category_id);
+
+      if (error) throw fromPostgrest(error);
+      return res.status(204).end();
+    }
+
+    const { data, error } = await db
+      .from('orcamento_tetos')
+      .upsert(
+        { tenant_id: req.tenantId!, category_id: corpo.category_id, teto_pct: corpo.teto_pct },
+        { onConflict: 'tenant_id,category_id' },
+      )
       .select('*')
       .single();
 
