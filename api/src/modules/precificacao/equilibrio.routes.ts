@@ -17,6 +17,7 @@ import { calcularGiro } from './giro.js';
 import { calcularCiclo } from './ciclo.js';
 import { calcularProLabore } from './prolabore.js';
 import { calcularProvisao } from './provisao.js';
+import { calcularComercial } from './comercial.js';
 
 export const equilibrioRouter = Router();
 equilibrioRouter.use(requireAuth, requireTenant);
@@ -864,6 +865,139 @@ equilibrioRouter.get('/provisao', async (req, res, next) => {
       entrada,
       resultado: calcularProvisao(entrada),
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ==================================================================== */
+/* Indicadores comerciais                                                */
+/* ==================================================================== */
+
+const comercialSchema = z.object({
+  compras_por_ano: z.coerce.number().min(0).max(999).nullish(),
+  anos_relacionamento: z.coerce.number().min(0).max(99).nullish(),
+});
+
+/**
+ * Ticket, conversão e CAC — a aula 4.7 com tudo medido menos a recompra.
+ *
+ * As contagens (vendas, atendimentos, clientes novos) vêm do fechamento
+ * mensal. Elas NÃO herdam do mês anterior, por decisão do SQL 43: uma
+ * conversão copiada de agosto para setembro nunca mudaria, e é a
+ * variação que esta tela existe para mostrar.
+ *
+ * Por isso a busca é pelo fechamento mais recente que tenha ao menos uma
+ * das três — e a competência viaja junto, para a tela poder dizer de
+ * quando são os números em vez de deixar parecerem de hoje.
+ */
+equilibrioRouter.get('/comercial', async (req, res, next) => {
+  try {
+    const tenant = req.tenantId!;
+    const hoje = `${new Date().toISOString().slice(0, 7)}-01`;
+    const db = req.supabase as unknown as { from: (t: string) => any };
+
+    const [cfg, fech, dre, verba, mixProdutos] = await Promise.all([
+      db.from('comercial_config').select('*').eq('tenant_id', tenant).maybeSingle(),
+      db
+        .from('vw_fechamento_ultimo')
+        .select('competencia, atendimentos, vendas_numero, clientes_novos')
+        .eq('tenant_id', tenant)
+        .maybeSingle(),
+      req.supabase
+        .from('vw_dre_monthly')
+        .select('competencia, receita_bruta')
+        .eq('tenant_id', tenant)
+        .lt('competencia', hoje)
+        .order('competencia', { ascending: false })
+        .limit(3),
+      db.from('vw_verba_midia_ultima').select('*').eq('tenant_id', tenant).maybeSingle(),
+      req.supabase
+        .from('mix_produtos')
+        .select('preco, custo_direto, imposto_fixo, imposto_pct, variaveis_pct, participacao_pct')
+        .eq('tenant_id', tenant),
+    ]);
+
+    for (const r of [cfg, fech, dre, verba, mixProdutos]) {
+      if (r.error) throw fromPostgrest(r.error);
+    }
+
+    const c: any = cfg.data ?? {};
+    const f: any = fech.data ?? {};
+    const v: any = verba.data ?? {};
+
+    const mesesDre: any[] = (dre.data ?? []) as any[];
+    const receitaMedia = mesesDre.length
+      ? Math.round(
+          (mesesDre.reduce((s, m) => s + Number(m.receita_bruta ?? 0), 0) / mesesDre.length) * 100,
+        ) / 100
+      : 0;
+
+    const produtos = ((mixProdutos.data ?? []) as any[]).map((p) => ({
+      nome: '',
+      preco: Number(p.preco ?? 0),
+      custoDireto: Number(p.custo_direto ?? 0),
+      impostoFixo: Number(p.imposto_fixo ?? 0),
+      impostoPct: Number(p.imposto_pct ?? 0),
+      variaveisPct: Number(p.variaveis_pct ?? 0),
+      participacaoPct: Number(p.participacao_pct ?? 0),
+    })) as ProdutoEntrada[];
+
+    const mix = produtos.length
+      ? calcularEquilibrio({ produtos, custosFixosMensais: 0, faturamentoAtual: 0 })
+      : null;
+    const margemMedida = mix?.indiceMargemContribuicao ?? 0;
+
+    const q = (nome: string, padrao: number) => {
+      const x = req.query[nome];
+      return x === undefined ? padrao : Number(x) || 0;
+    };
+
+    const entrada = {
+      faturamentoMensal: q('faturamento', receitaMedia),
+      vendas: q('vendas', Number(f.vendas_numero ?? 0)),
+      atendimentos: q('atendimentos', Number(f.atendimentos ?? 0)),
+      verbaMarketing: q('verba', Number(v.verba_total ?? 0)),
+      clientesNovos: q('novos', Number(f.clientes_novos ?? 0)),
+      margemContribuicaoPct: q('margem', margemMedida),
+      comprasPorAno: q('compras', Number(c.compras_por_ano ?? 0)),
+      anosRelacionamento: q('anos', Number(c.anos_relacionamento ?? 0)),
+    };
+
+    res.json({
+      config: cfg.data ?? null,
+      medido: {
+        faturamento_mensal: receitaMedia,
+        meses_dre: mesesDre.length,
+        competencia_contagens: f.competencia ?? null,
+        vendas: f.vendas_numero ?? null,
+        atendimentos: f.atendimentos ?? null,
+        clientes_novos: f.clientes_novos ?? null,
+        verba_marketing: v.verba_total ?? null,
+        competencia_verba: v.competencia ?? null,
+        margem_contribuicao_pct: mix ? margemMedida : null,
+      },
+      entrada,
+      resultado: calcularComercial(entrada),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Grava as duas estimativas de recompra. */
+equilibrioRouter.put('/comercial', ESCREVE, validate(comercialSchema), async (req, res, next) => {
+  try {
+    const db = req.supabase as unknown as { from: (t: string) => any };
+
+    const { data, error } = await db
+      .from('comercial_config')
+      .upsert({ ...(req.body as object), tenant_id: req.tenantId! }, { onConflict: 'tenant_id' })
+      .select('*')
+      .single();
+
+    if (error) throw fromPostgrest(error);
+    res.json({ data });
   } catch (e) {
     next(e);
   }
