@@ -42,6 +42,20 @@ export interface EntradaPreco {
   /** Quanto custa produzir ou comprar uma unidade. Em reais. */
   custoDireto: number;
 
+  /**
+   * Imposto em VALOR por unidade — ICMS-ST, alíquota ad rem.
+   *
+   * Entra no numerador, junto do custo direto, e não entre os
+   * percentuais. A razão é aritmética: um valor fixo por unidade não
+   * cresce com o preço, então dividi-lo pelo mesmo divisor dos
+   * percentuais inflaria o preço; deixá-lo de fora o deixaria barato.
+   *
+   * Para efeito de precificação, encargo fixo por unidade é
+   * indistinguível de custo. O que muda é a LEITURA — na composição ele
+   * aparece como imposto, porque é o que ele é.
+   */
+  impostoFixo?: number;
+
   /** Percentuais sobre o PREÇO de venda. */
   impostosPct: number;
   comissaoPct: number;
@@ -131,7 +145,11 @@ const vazio = (erro: string): ResultadoPreco => ({
 });
 
 export function calcularPreco(entrada: EntradaPreco): ResultadoPreco {
-  const custo = num(entrada.custoDireto);
+  const custoDireto = num(entrada.custoDireto);
+  const impostoFixo = num(entrada.impostoFixo);
+
+  // O que precisa ser coberto antes de qualquer percentual.
+  const custo = custoDireto + impostoFixo;
 
   const impostos = num(entrada.impostosPct);
   const comissao = num(entrada.comissaoPct);
@@ -139,8 +157,12 @@ export function calcularPreco(entrada: EntradaPreco): ResultadoPreco {
   const fixas = num(entrada.despesasFixasPct);
   const margem = num(entrada.margemPct);
 
-  if (custo <= 0) {
+  if (custoDireto <= 0) {
     return vazio('Informe o custo direto de uma unidade.');
+  }
+
+  if (impostoFixo < 0) {
+    return vazio('O imposto fixo por unidade não pode ser negativo.');
   }
 
   const percentuais = [impostos, comissao, outras, fixas, margem];
@@ -183,7 +205,19 @@ export function calcularPreco(entrada: EntradaPreco): ResultadoPreco {
   const valorDe = (pct: number) => r2((preco * pct) / 100);
 
   const composicao: Composicao[] = [
-    { rotulo: 'Custo direto', percentual: r2((custo / preco) * 100), valor: r2(custo) },
+    { rotulo: 'Custo direto', percentual: r2((custoDireto / preco) * 100), valor: r2(custoDireto) },
+    // Separado dos percentuais de propósito: no cálculo ele é custo, na
+    // leitura é imposto. Somá-lo à linha "Impostos" esconderia que uma
+    // parte da carga não acompanha o preço.
+    ...(impostoFixo > 0
+      ? [
+          {
+            rotulo: 'Imposto fixo (ST / ad rem)',
+            percentual: r2((impostoFixo / preco) * 100),
+            valor: r2(impostoFixo),
+          },
+        ]
+      : []),
     { rotulo: 'Impostos', percentual: r2(impostos), valor: valorDe(impostos) },
     { rotulo: 'Comissão', percentual: r2(comissao), valor: valorDe(comissao) },
     { rotulo: 'Outras despesas variáveis', percentual: r2(outras), valor: valorDe(outras) },
@@ -194,6 +228,7 @@ export function calcularPreco(entrada: EntradaPreco): ResultadoPreco {
   // MC = preço − tudo que varia com a venda. Despesa fixa NÃO entra:
   // é justamente o que a margem de contribuição existe para pagar.
   const variaveis = custo + valorDe(impostos) + valorDe(comissao) + valorDe(outras);
+  // `custo` já inclui o imposto fixo — ver a definição acima.
   const mc = r2(preco - variaveis);
   const mcPct = r2((mc / preco) * 100);
 

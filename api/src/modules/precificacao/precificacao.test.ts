@@ -181,3 +181,73 @@ describe('comparação com o preço praticado', () => {
     assert.equal(calcularPreco(base).comparacao, null);
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* Imposto fixo por unidade — ICMS-ST, ad rem                          */
+/* ------------------------------------------------------------------ */
+
+describe('imposto fixo por unidade', () => {
+  it('entra no numerador, como custo', () => {
+    // Custo 40 + ST 6 = 46. Soma 42% -> divisor 0,58. 46/0,58 = 79,31.
+    const r = calcularPreco({ ...base, impostoFixo: 6 });
+    assert.equal(r.precoSugerido, 79.31);
+  });
+
+  /**
+   * O erro que o campo existe para evitar.
+   *
+   * Tratar R$ 6 de ST como se fosse percentual — ou simplesmente
+   * ignorá-lo — dá preços diferentes e ambos errados. Este teste fixa
+   * qual é o certo.
+   */
+  it('não é o mesmo que ignorar nem que somar ao custo depois', () => {
+    const com = calcularPreco({ ...base, impostoFixo: 6 });
+    const sem = calcularPreco(base);
+
+    // Ignorar dá 68,97 — R$ 10,34 mais barato, e a diferença some da margem.
+    assert.equal(sem.precoSugerido, 68.97);
+    assert.ok(com.precoSugerido! > sem.precoSugerido!);
+
+    // E equivale exatamente a ter R$ 6 a mais de custo direto.
+    const comoCusto = calcularPreco({ ...base, custoDireto: 46 });
+    assert.equal(com.precoSugerido, comoCusto.precoSugerido);
+  });
+
+  it('aparece na composição como imposto, não como custo', () => {
+    const r = calcularPreco({ ...base, impostoFixo: 6 });
+
+    const custo = r.composicao.find((c) => c.rotulo === 'Custo direto');
+    const st = r.composicao.find((c) => c.rotulo.includes('ST'));
+
+    assert.equal(custo?.valor, 40, 'O custo direto não pode absorver o ST');
+    assert.equal(st?.valor, 6);
+  });
+
+  it('não aparece na composição quando é zero', () => {
+    const r = calcularPreco(base);
+    assert.equal(r.composicao.some((c) => c.rotulo.includes('ST')), false);
+  });
+
+  it('reduz a margem de contribuição no mesmo valor', () => {
+    const com = calcularPreco({ ...base, impostoFixo: 6 });
+    const p = com.precoSugerido!;
+
+    // MC = preço − custo − ST − imposto% − comissão%
+    const esperado = Math.round((p - 40 - 6 - p * 0.09) * 100) / 100;
+    assert.equal(com.margemContribuicao, esperado);
+  });
+
+  it('negativo é recusado', () => {
+    const r = calcularPreco({ ...base, impostoFixo: -1 });
+    assert.equal(r.viavel, false);
+    assert.match(r.erro ?? '', /imposto fixo/i);
+  });
+
+  it('custo direto zero continua sendo erro, mesmo com ST informado', () => {
+    // Senão um produto sem custo passaria a "ter custo" pelo imposto, e
+    // a tela deixaria de cobrar o campo que importa.
+    const r = calcularPreco({ ...base, custoDireto: 0, impostoFixo: 10 });
+    assert.equal(r.viavel, false);
+    assert.match(r.erro ?? '', /custo direto/i);
+  });
+});

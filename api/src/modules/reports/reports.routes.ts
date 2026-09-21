@@ -282,6 +282,8 @@ reportsRouter.get('/precificacao/base', async (req, res, next) => {
 
 const precoSchema = z.object({
   custoDireto: z.coerce.number(),
+  /** ICMS-ST, ad rem. Valor por unidade, não percentual. */
+  impostoFixo: z.coerce.number().min(0).default(0),
   impostosPct: z.coerce.number().default(0),
   comissaoPct: z.coerce.number().default(0),
   outrasVariaveisPct: z.coerce.number().default(0),

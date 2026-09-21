@@ -302,3 +302,62 @@ describe('bordas', () => {
     assert.equal(r.alertas.some((a) => /Sem despesas fixas/.test(a)), true);
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* Imposto fixo por unidade no mix                                     */
+/* ------------------------------------------------------------------ */
+
+describe('imposto fixo por unidade', () => {
+  const comST: ProdutoEntrada = {
+    nome: 'Com ST',
+    preco: 100,
+    custoDireto: 40,
+    impostoFixo: 6,
+    impostoPct: 9,
+    variaveisPct: 6,
+    participacaoPct: 100,
+  };
+
+  it('soma ao imposto percentual', () => {
+    const r = calcularEquilibrio({ produtos: [comST], custosFixosMensais: 10_000 });
+    // 6 fixo + 9% de 100 = 15
+    assert.equal(r.produtos[0]?.imposto, 15);
+    assert.equal(r.produtos[0]?.impostoFixo, 6);
+  });
+
+  it('reduz a MC líquida, e não a bruta', () => {
+    const r = calcularEquilibrio({ produtos: [comST], custosFixosMensais: 10_000 });
+    // Bruta ignora imposto: 100 − 40 = 60
+    assert.equal(r.produtos[0]?.margemContribuicaoBruta, 60);
+    // Líquida: 100 − 40 − 6 − 9 − 6 = 39
+    assert.equal(r.produtos[0]?.margemContribuicao, 39);
+  });
+
+  it('sem ST informado, nada muda', () => {
+    const a = calcularEquilibrio({
+      produtos: [{ ...comST, impostoFixo: undefined }],
+      custosFixosMensais: 10_000,
+    });
+    const b = calcularEquilibrio({
+      produtos: [{ ...comST, impostoFixo: 0 }],
+      custosFixosMensais: 10_000,
+    });
+    assert.equal(a.produtos[0]?.margemContribuicao, 45);
+    assert.equal(a.produtos[0]?.margemContribuicao, b.produtos[0]?.margemContribuicao);
+  });
+
+  it('ST alto pode zerar a margem de um item que parecia bom', () => {
+    const r = calcularEquilibrio({
+      produtos: [
+        { ...comST, nome: 'Bebida com ST', impostoFixo: 46, participacaoPct: 30 },
+        { ...comST, nome: 'Saudável', impostoFixo: 0, participacaoPct: 70 },
+      ],
+      custosFixosMensais: 10_000,
+    });
+
+    const ruim = r.produtos.find((x) => x.nome === 'Bebida com ST');
+    assert.equal(ruim?.margemContribuicaoBruta, 60);
+    assert.equal(ruim?.margemContribuicao, -1);
+    assert.equal(ruim?.destruiValor, true);
+  });
+});

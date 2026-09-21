@@ -39,6 +39,15 @@ export interface ProdutoEntrada {
   custoDireto: number;
 
   /**
+   * Imposto em VALOR por unidade — ICMS-ST, alíquota ad rem.
+   *
+   * Some ao custo variável como qualquer encargo que não acompanha o
+   * preço. Somá-lo aos percentuais daria um número que cresce quando o
+   * preço sobe, e imposto ad rem não faz isso.
+   */
+  impostoFixo?: number;
+
+  /**
    * Alíquota de imposto sobre o preço de venda.
    *
    * Separada de `variaveisPct` desde 16/09/2026, e não por capricho: a
@@ -76,8 +85,10 @@ export interface ProdutoCalculado {
   margemContribuicaoBruta: number;
   margemContribuicaoBrutaPct: number;
 
-  /** Quanto de imposto cada unidade carrega, em reais. */
+  /** Quanto de imposto cada unidade carrega, em reais — fixo e percentual. */
   imposto: number;
+  /** A parte do imposto que é valor por unidade, e não percentual. */
+  impostoFixo: number;
   /** Comissão, frete, cartão — em reais por unidade. */
   outrosVariaveis: number;
 
@@ -177,7 +188,8 @@ export function calcularEquilibrio(entrada: EntradaEquilibrio): ResultadoEquilib
     const preco = num(p.preco);
     const custo = num(p.custoDireto);
 
-    const imposto = r2((preco * num(p.impostoPct)) / 100);
+    const fixo = r2(num(p.impostoFixo));
+    const imposto = r2(fixo + (preco * num(p.impostoPct)) / 100);
     const outros = r2((preco * num(p.variaveisPct)) / 100);
 
     // O custo variável total continua sendo a soma de tudo que varia com
@@ -198,6 +210,7 @@ export function calcularEquilibrio(entrada: EntradaEquilibrio): ResultadoEquilib
       margemContribuicaoBruta: mcBruta,
       margemContribuicaoBrutaPct: r2((mcBruta / preco) * 100),
       imposto,
+      impostoFixo: fixo,
       outrosVariaveis: outros,
       margemContribuicao: mc,
       margemContribuicaoPct: mcPct,
