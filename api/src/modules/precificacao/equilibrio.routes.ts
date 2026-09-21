@@ -22,6 +22,7 @@ import { calcularOrcamento } from './orcamento.js';
 import { calcularIndices } from './indices.js';
 import { calcularPlanoCiclo } from './planociclo.js';
 import { calcularHoraProdutiva } from './horaprodutiva.js';
+import { calcularCentros } from './centros.js';
 
 export const equilibrioRouter = Router();
 equilibrioRouter.use(requireAuth, requireTenant);
@@ -1689,6 +1690,138 @@ equilibrioRouter.put('/hora-produtiva', ESCREVE, validate(horaSchema), async (re
       .single();
 
     if (error) throw fromPostgrest(error);
+    res.json({ data });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ==================================================================== */
+/* Centros de resultado                                                  */
+/* ==================================================================== */
+
+const rateioSchema = z.object({
+  cost_center_id: z.string().uuid(),
+  /** Nulo apaga o critério daquela frente. */
+  rateio_pct: z.coerce.number().min(0).max(100).nullable(),
+});
+
+/**
+ * As frentes do negócio, medidas — aula 1.8.
+ *
+ * Um mês por vez, escolhido pela query `?competencia=AAAA-MM`. O padrão
+ * é o último mês fechado: olhar o mês corrente daria frentes pela
+ * metade, e a comparação entre elas é exatamente o que esta tela faz.
+ */
+equilibrioRouter.get('/centros', async (req, res, next) => {
+  try {
+    const tenant = req.tenantId!;
+    const db = req.supabase as unknown as { from: (t: string) => any };
+
+    // Último mês fechado, salvo escolha explícita.
+    const pedida = String(req.query.competencia ?? '');
+    const m = pedida.match(/^(\d{4})-(\d{2})/);
+    let competencia: string;
+    if (m) {
+      competencia = `${m[1]}-${m[2]}-01`;
+    } else {
+      const d = new Date();
+      d.setDate(1);
+      d.setMonth(d.getMonth() - 1);
+      competencia = `${d.toISOString().slice(0, 7)}-01`;
+    }
+
+    const [linhas, centros, meses] = await Promise.all([
+      db
+        .from('vw_centros_resultado')
+        .select('*')
+        .eq('tenant_id', tenant)
+        .eq('competencia', competencia),
+      req.supabase
+        .from('cost_centers')
+        .select('id, name, is_active, rateio_pct')
+        .eq('tenant_id', tenant)
+        .eq('is_active', true)
+        .order('name'),
+      db
+        .from('vw_centros_resultado')
+        .select('competencia')
+        .eq('tenant_id', tenant)
+        .order('competencia', { ascending: false })
+        .limit(24),
+    ]);
+
+    for (const r of [linhas, centros, meses]) {
+      if (r.error) throw fromPostgrest(r.error);
+    }
+
+    const apurado: any[] = (linhas.data ?? []) as any[];
+    const lista: any[] = (centros.data ?? []) as any[];
+
+    const porCentro = new Map<string, any>(
+      apurado.filter((l) => l.cost_center_id).map((l) => [l.cost_center_id, l]),
+    );
+
+    // A linha sem centro de custo é o bolo comum. Só a despesa fixa dela
+    // entra no rateio: receita e custo variável sem frente não ajudam a
+    // decidir nada, e distribuí-los pela participação seria circular —
+    // a participação sai justamente da receita.
+    const semCentro = apurado.find((l) => !l.cost_center_id) ?? {};
+    const custoComum = Number(semCentro.despesas_fixas ?? 0);
+
+    const frentes = lista.map((c) => {
+      const l = porCentro.get(c.id) ?? {};
+      return {
+        id: c.id as string,
+        nome: c.name as string,
+        receita: Number(l.receita ?? 0),
+        deducoes: Number(l.deducoes ?? 0),
+        custosVariaveis: Number(l.custos_variaveis ?? 0),
+        fixosDiretos: Number(l.despesas_fixas ?? 0),
+        rateioPct:
+          c.rateio_pct === null || c.rateio_pct === undefined ? null : Number(c.rateio_pct),
+      };
+    });
+
+    const entrada = { frentes, custoComum: Number(req.query.comum ?? custoComum) || 0 };
+
+    res.json({
+      competencia,
+      meses_disponiveis: Array.from(
+        new Set(((meses.data ?? []) as any[]).map((x) => x.competencia)),
+      ),
+      medido: {
+        custo_comum: custoComum,
+        // Receita sem frente é um sintoma, não um número para usar: ela
+        // não entra em conta nenhuma, mas o cliente precisa saber que
+        // existe.
+        receita_sem_centro: Number(semCentro.receita ?? 0),
+        variaveis_sem_centro: Number(semCentro.custos_variaveis ?? 0),
+        centros_cadastrados: lista.length,
+      },
+      entrada,
+      resultado: calcularCentros(entrada),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Define ou apaga o percentual de rateio de uma frente. */
+equilibrioRouter.put('/centros/rateio', ESCREVE, validate(rateioSchema), async (req, res, next) => {
+  try {
+    const corpo = req.body as z.infer<typeof rateioSchema>;
+
+    const { data, error } = await req.supabase
+      .from('cost_centers')
+      .update({ rateio_pct: corpo.rateio_pct } as never)
+      .eq('id', corpo.cost_center_id)
+      .eq('tenant_id', req.tenantId!)
+      .select('*')
+      .maybeSingle();
+
+    if (error) throw fromPostgrest(error);
+    if (!data) return next(notFound('Centro de custo não encontrado'));
     res.json({ data });
   } catch (e) {
     next(e);
