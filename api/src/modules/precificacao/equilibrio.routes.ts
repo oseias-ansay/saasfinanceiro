@@ -21,6 +21,7 @@ import { calcularComercial } from './comercial.js';
 import { calcularOrcamento } from './orcamento.js';
 import { calcularIndices } from './indices.js';
 import { calcularPlanoCiclo } from './planociclo.js';
+import { calcularHoraProdutiva } from './horaprodutiva.js';
 
 export const equilibrioRouter = Router();
 equilibrioRouter.use(requireAuth, requireTenant);
@@ -1578,6 +1579,117 @@ equilibrioRouter.delete('/plano-ciclo/:id', ESCREVE, async (req, res, next) => {
 
     if (error) throw fromPostgrest(error);
     res.status(204).end();
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ==================================================================== */
+/* Hora produtiva                                                        */
+/* ==================================================================== */
+
+const horaSchema = z.object({
+  pessoas: z.coerce.number().int().min(1).max(9999).nullish(),
+  horas_contratadas: z.coerce.number().min(1).max(744).optional(),
+  horas_ferias: z.coerce.number().min(0).optional(),
+  horas_feriados: z.coerce.number().min(0).optional(),
+  horas_faltas: z.coerce.number().min(0).optional(),
+  ocupacao_pct: z.coerce.number().min(1).max(100).optional(),
+  servico_nome: z.string().trim().min(2).max(120).nullish(),
+  servico_horas: z.coerce.number().min(0).nullish(),
+  servico_por_mes: z.coerce.number().min(0).nullish(),
+});
+
+/**
+ * O custo real de uma hora da equipe — aula 3.4.
+ *
+ * A folha vem das categorias com `papel = 'folha'` (SQL 44), média dos
+ * três últimos meses fechados. Média e não o último mês porque
+ * dezembro, com o 13º, dobraria a folha e faria a hora parecer o dobro
+ * do que é justamente no mês em que mais se orça para o ano seguinte.
+ */
+equilibrioRouter.get('/hora-produtiva', async (req, res, next) => {
+  try {
+    const tenant = req.tenantId!;
+    const hoje = `${new Date().toISOString().slice(0, 7)}-01`;
+    const db = req.supabase as unknown as { from: (t: string) => any };
+
+    const [cfg, folhaSerie] = await Promise.all([
+      db.from('hora_produtiva_config').select('*').eq('tenant_id', tenant).maybeSingle(),
+      db
+        .from('vw_prolabore_mensal')
+        .select('competencia, folha')
+        .eq('tenant_id', tenant)
+        .lt('competencia', hoje)
+        .order('competencia', { ascending: false })
+        .limit(3),
+    ]);
+
+    for (const r of [cfg, folhaSerie]) {
+      if (r.error) throw fromPostgrest(r.error);
+    }
+
+    const c: any = cfg.data ?? {};
+    const meses: any[] = (folhaSerie.data ?? []) as any[];
+
+    const folhaMedida = meses.length
+      ? Math.round(
+          (meses.reduce((s, m) => s + Number(m.folha ?? 0), 0) / meses.length) * 100,
+        ) / 100
+      : 0;
+
+    const q = (nome: string, padrao: number) => {
+      const v = req.query[nome];
+      return v === undefined ? padrao : Number(v) || 0;
+    };
+
+    const entrada = {
+      folhaMensal: q('folha', folhaMedida),
+      pessoas: q('pessoas', Number(c.pessoas ?? 0)),
+      horasContratadas: q('horas', Number(c.horas_contratadas ?? 220)),
+      horasFerias: q('ferias', Number(c.horas_ferias ?? 0)),
+      horasFeriados: q('feriados', Number(c.horas_feriados ?? 0)),
+      horasFaltas: q('faltas', Number(c.horas_faltas ?? 0)),
+      ocupacaoPct: q('ocupacao', Number(c.ocupacao_pct ?? 70)),
+      servicoNome: (c.servico_nome ?? null) as string | null,
+      servicoHoras: c.servico_horas === null || c.servico_horas === undefined
+        ? null
+        : Number(c.servico_horas),
+      servicoPorMes: c.servico_por_mes === null || c.servico_por_mes === undefined
+        ? null
+        : Number(c.servico_por_mes),
+    };
+
+    res.json({
+      config: cfg.data ?? null,
+      medido: {
+        folha_mensal: folhaMedida,
+        meses_folha: meses.length,
+        // Zero com meses medidos quase sempre significa categoria sem
+        // `papel = 'folha'`, não empresa sem funcionário.
+        folha_tem_categoria_marcada: meses.some((m) => Number(m.folha ?? 0) > 0),
+      },
+      entrada,
+      resultado: calcularHoraProdutiva(entrada),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Grava os parâmetros da equipe. Upsert: uma linha por empresa. */
+equilibrioRouter.put('/hora-produtiva', ESCREVE, validate(horaSchema), async (req, res, next) => {
+  try {
+    const db = req.supabase as unknown as { from: (t: string) => any };
+
+    const { data, error } = await db
+      .from('hora_produtiva_config')
+      .upsert({ ...(req.body as object), tenant_id: req.tenantId! }, { onConflict: 'tenant_id' })
+      .select('*')
+      .single();
+
+    if (error) throw fromPostgrest(error);
+    res.json({ data });
   } catch (e) {
     next(e);
   }
