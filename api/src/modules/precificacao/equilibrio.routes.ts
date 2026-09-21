@@ -20,6 +20,7 @@ import { calcularProvisao } from './provisao.js';
 import { calcularComercial } from './comercial.js';
 import { calcularOrcamento } from './orcamento.js';
 import { calcularIndices } from './indices.js';
+import { calcularPlanoCiclo } from './planociclo.js';
 
 export const equilibrioRouter = Router();
 equilibrioRouter.use(requireAuth, requireTenant);
@@ -1348,6 +1349,235 @@ equilibrioRouter.get('/indices', async (req, res, next) => {
       entrada,
       resultado: calcularIndices(entrada),
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ==================================================================== */
+/* Plano de redução de ciclo                                             */
+/* ==================================================================== */
+
+const alavancaSchema = z.object({
+  titulo: z.string().trim().min(3).max(200),
+  detalhe: z.string().trim().max(2000).nullish(),
+  ganho_dias: z.coerce.number().min(0).max(999),
+  responsavel_nome: z.string().trim().min(2).max(120),
+  prazo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use AAAA-MM-DD'),
+});
+
+/**
+ * Garante que existe um plano ativo e devolve o id.
+ *
+ * O índice `planos_acao_um_ativo_idx` permite UM plano ativo por
+ * empresa. Isso é bom — impede a lista de pendências de se dividir em
+ * vários lugares — e significa que a alavanca entra no plano que já
+ * existe, seja ele do PDCA ou não.
+ *
+ * Quando não há nenhum, a ferramenta cria: é melhor que recusar a
+ * primeira alavanca com "crie um plano antes", que manda o cliente
+ * procurar uma tela que ele não sabe onde fica.
+ */
+async function planoAtivo(db: any, tenant: string): Promise<string> {
+  const { data, error } = await db
+    .from('planos_acao')
+    .select('id')
+    .eq('tenant_id', tenant)
+    .eq('status', 'ativo')
+    .maybeSingle();
+
+  if (error) throw fromPostgrest(error);
+  if (data?.id) return data.id as string;
+
+  const { data: novo, error: erroNovo } = await db
+    .from('planos_acao')
+    .insert({ tenant_id: tenant, titulo: 'Plano de ação', status: 'ativo' })
+    .select('id')
+    .single();
+
+  if (erroNovo) throw fromPostgrest(erroNovo);
+  return novo.id as string;
+}
+
+/**
+ * O plano da aula 4.3, com o ciclo de hoje já medido.
+ *
+ * Reaproveita `calcularCiclo` para o ponto de partida em vez de recebê-lo
+ * por parâmetro: se as duas telas calculassem o ciclo de formas
+ * diferentes, o plano prometeria reduzir um número que a outra
+ * ferramenta não mostra.
+ */
+equilibrioRouter.get('/plano-ciclo', async (req, res, next) => {
+  try {
+    const tenant = req.tenantId!;
+    const hoje = `${new Date().toISOString().slice(0, 7)}-01`;
+    const db = req.supabase as unknown as { from: (t: string) => any };
+
+    const [dre, contas, estoque, acoes, fech] = await Promise.all([
+      req.supabase
+        .from('vw_dre_monthly')
+        .select('competencia, receita_bruta')
+        .eq('tenant_id', tenant)
+        .lt('competencia', hoje)
+        .order('competencia', { ascending: false })
+        .limit(3),
+      req.supabase
+        .from('vw_contas_resumo')
+        .select('natureza, total_aberto')
+        .eq('tenant_id', tenant),
+      estoqueInformado(req.supabase, tenant),
+      db
+        .from('acoes')
+        .select('id, titulo, detalhe, ganho_dias, responsavel_nome, prazo, status, ordem')
+        .eq('tenant_id', tenant)
+        .not('ganho_dias', 'is', null)
+        .order('ordem')
+        .order('created_at'),
+      db
+        .from('fechamentos_mensais')
+        .select('competencia, custo_divida_pct_am')
+        .eq('tenant_id', tenant)
+        .not('custo_divida_pct_am', 'is', null)
+        .order('competencia', { ascending: false })
+        .limit(1),
+    ]);
+
+    for (const r of [dre, contas, acoes, fech]) {
+      if (r.error) throw fromPostgrest(r.error);
+    }
+
+    const meses: any[] = (dre.data ?? []) as any[];
+    const receitaMedia = meses.length
+      ? meses.reduce((s, m) => s + Number(m.receita_bruta ?? 0), 0) / meses.length
+      : 0;
+
+    const linhas: any[] = (contas.data ?? []) as any[];
+    const aberto = (nat: string) =>
+      Number(linhas.find((c) => c.natureza === nat)?.total_aberto ?? 0);
+
+    // Mesmo cálculo da calculadora de ciclo. Duas implementações do
+    // mesmo número divergiriam na primeira mudança de régua.
+    const ciclo = calcularCiclo({
+      receitaMensal: receitaMedia,
+      estoque: estoque.valor ?? 0,
+      aReceber: aberto('a_receber'),
+      aPagar: aberto('a_pagar'),
+    });
+
+    const taxaSalva = Number((fech.data as any[])?.[0]?.custo_divida_pct_am ?? 0);
+
+    const entrada = {
+      cicloHojeDias: Number(req.query.ciclo ?? ciclo.cicloFinanceiro) || 0,
+      vendaDiaria: Number(req.query.venda ?? ciclo.vendaDiaria) || 0,
+      taxaCapitalGiroMesPct: Number(req.query.taxa ?? taxaSalva) || null,
+      alavancas: ((acoes.data ?? []) as any[]).map((a) => ({
+        id: a.id as string,
+        titulo: a.titulo as string,
+        detalhe: (a.detalhe ?? null) as string | null,
+        ganhoDias: Number(a.ganho_dias ?? 0),
+        responsavel: a.responsavel_nome as string,
+        prazo: a.prazo as string,
+        status: a.status as 'aberta' | 'concluida' | 'cancelada',
+      })),
+    };
+
+    res.json({
+      medido: {
+        ciclo_hoje: ciclo.cicloFinanceiro,
+        venda_diaria: ciclo.vendaDiaria,
+        estoque_informado: estoque.valor !== null,
+        ciclo_erro: ciclo.erro,
+        taxa_capital_giro_pct: taxaSalva || null,
+      },
+      entrada,
+      resultado: calcularPlanoCiclo(entrada),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Cria uma alavanca no plano ativo. */
+equilibrioRouter.post('/plano-ciclo', ESCREVE, validate(alavancaSchema), async (req, res, next) => {
+  try {
+    const db = req.supabase as unknown as { from: (t: string) => any };
+    const plano = await planoAtivo(db, req.tenantId!);
+
+    const { data, error } = await db
+      .from('acoes')
+      .insert({
+        ...(req.body as object),
+        plano_id: plano,
+        tenant_id: req.tenantId!,
+        pilar: 'Ciclo financeiro',
+      })
+      .select('*')
+      .single();
+
+    if (error) throw fromPostgrest(error);
+    res.status(201).json({ data });
+  } catch (e) {
+    next(e);
+  }
+});
+
+equilibrioRouter.patch(
+  '/plano-ciclo/:id',
+  ESCREVE,
+  validate(
+    alavancaSchema.partial().extend({
+      status: z.enum(['aberta', 'concluida', 'cancelada']).optional(),
+    }),
+  ),
+  async (req, res, next) => {
+    try {
+      const db = req.supabase as unknown as { from: (t: string) => any };
+      const corpo = { ...(req.body as Record<string, unknown>) };
+
+      // Concluir carimba a data; reabrir limpa. Sem isso, uma alavanca
+      // reaberta guardaria a data da conclusão anterior e o histórico do
+      // plano passaria a mentir.
+      if (corpo.status === 'concluida') {
+        corpo.concluida_em = new Date().toISOString();
+        corpo.concluida_por = req.user!.id;
+      } else if (corpo.status === 'aberta') {
+        corpo.concluida_em = null;
+        corpo.concluida_por = null;
+      }
+
+      const { data, error } = await db
+        .from('acoes')
+        .update(corpo)
+        .eq('id', req.params.id!)
+        .eq('tenant_id', req.tenantId!)
+        .not('ganho_dias', 'is', null)
+        .select('*')
+        .maybeSingle();
+
+      if (error) throw fromPostgrest(error);
+      if (!data) return next(notFound('Alavanca não encontrada'));
+      res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+equilibrioRouter.delete('/plano-ciclo/:id', ESCREVE, async (req, res, next) => {
+  try {
+    const db = req.supabase as unknown as { from: (t: string) => any };
+
+    // O filtro por `ganho_dias` impede esta rota de apagar uma ação
+    // comum do PDCA se alguém mandar um id de outra tela.
+    const { error } = await db
+      .from('acoes')
+      .delete()
+      .eq('id', req.params.id!)
+      .eq('tenant_id', req.tenantId!)
+      .not('ganho_dias', 'is', null);
+
+    if (error) throw fromPostgrest(error);
+    res.status(204).end();
   } catch (e) {
     next(e);
   }
