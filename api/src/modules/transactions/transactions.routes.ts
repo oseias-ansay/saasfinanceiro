@@ -3,6 +3,7 @@ import { requireAuth, requireTenant, requireRole } from '../../middlewares/auth.
 import { validate } from '../../middlewares/validate.js';
 import {
   createTransactionSchema,
+  deleteManySchema,
   listTransactionsSchema,
   settleSchema,
   unsettleSchema,
@@ -48,6 +49,22 @@ transactionsRouter.post('/settle', WRITE, validate(settleSchema), async (req, re
 transactionsRouter.post('/unsettle', WRITE, validate(unsettleSchema), async (req, res, next) => {
   try {
     res.json(await service.unsettleTransactions(req.supabase, req.body.ids));
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * Exclusão em lote. POST, e não DELETE com corpo: proxy e cliente HTTP
+ * descartam corpo de DELETE sem avisar, e uma lista de ids que chega vazia
+ * viraria "nada para excluir" sem ninguém entender por quê.
+ *
+ * Fica ANTES de `/:id` porque o Express casa na ordem: registrada depois,
+ * a rota seria atendida por `patch('/:id')` com id = 'delete'.
+ */
+transactionsRouter.post('/delete', WRITE, validate(deleteManySchema), async (req, res, next) => {
+  try {
+    res.json(await service.deleteManyTransactions(req.supabase, req.tenantId!, req.body.ids));
   } catch (e) {
     next(e);
   }

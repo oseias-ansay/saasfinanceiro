@@ -17,6 +17,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   avaliar,
+  duracaoEmTexto,
   textoDoAlarme,
   textoDoPulso,
   ultimoPrazo,
@@ -201,9 +202,67 @@ describe('a avaliação', () => {
   });
 
   it('o atraso é contado a partir do limite, não do início da janela', () => {
-    // Nunca rodou. Agora são 09h SP; o limite de hoje foi 04h SP.
-    const r = avaliar(agora, {}, [proc]);
+    // Rodou ontem. Agora são 09h SP; o limite de hoje foi 04h SP.
+    const r = avaliar(agora, { teste: utc('2026-09-10T07:30:00Z') }, [proc]);
     assert.equal(r[0]?.atrasoMin, 300); // 5h, e não 6h
+  });
+
+  /**
+   * A correção de 21/09/2026.
+   *
+   * "Parado há 9h15" e "nunca executou" são problemas diferentes e
+   * mandam procurar coisas diferentes: um, o que quebrou; o outro, o
+   * agendamento que nunca foi ligado. O alarme tratava os dois igual e
+   * mandava o dono caçar uma quebra inexistente.
+   */
+  it('quem nunca rodou não tem "há quanto tempo parou"', () => {
+    const r = avaliar(agora, {}, [proc]);
+    assert.equal(r[0]?.atrasado, true);
+    assert.equal(r[0]?.nuncaExecutou, true);
+    assert.equal(r[0]?.atrasoMin, null);
+  });
+
+  it('quem já rodou antes não é marcado como nunca executou', () => {
+    const r = avaliar(agora, { teste: utc('2026-09-10T07:30:00Z') }, [proc]);
+    assert.equal(r[0]?.nuncaExecutou, false);
+    assert.ok((r[0]?.atrasoMin ?? 0) > 0);
+  });
+
+  it('processo em dia também não é "nunca executou"', () => {
+    const r = avaliar(agora, { teste: utc('2026-09-11T07:30:00Z') }, [proc]);
+    assert.equal(r[0]?.nuncaExecutou, false);
+  });
+
+  /**
+   * O "parado há 0min" que apareceu no WhatsApp de 21/09.
+   *
+   * Processo de intervalo tem `limite = agora` por construção, então
+   * `agora − limite` dava sempre zero. O atraso dele precisa ser contado
+   * desde o último sucesso, descontado o intervalo previsto.
+   */
+  it('processo de intervalo conta o atraso desde o último sucesso', () => {
+    const intervalo: Processo = {
+      chave: 'fila',
+      nome: 'Fila',
+      expectativa: { tipo: 'intervalo', minutos: 15, toleranciaMin: 30 },
+      consequencia: 'Nada, é teste.',
+    };
+    // Rodou há 2h. Previsto a cada 15min → 105 minutos de atraso.
+    const r = avaliar(agora, { fila: new Date(agora.getTime() - 120 * 60_000) }, [intervalo]);
+    assert.equal(r[0]?.atrasado, true);
+    assert.equal(r[0]?.atrasoMin, 105);
+  });
+
+  it('processo de intervalo nunca executado não devolve 0min', () => {
+    const intervalo: Processo = {
+      chave: 'fila',
+      nome: 'Fila',
+      expectativa: { tipo: 'intervalo', minutos: 15, toleranciaMin: 30 },
+      consequencia: 'Nada, é teste.',
+    };
+    const r = avaliar(agora, {}, [intervalo]);
+    assert.equal(r[0]?.nuncaExecutou, true);
+    assert.equal(r[0]?.atrasoMin, null);
   });
 
   it('atrasado quando a última execução é anterior ao prazo', () => {
@@ -242,12 +301,56 @@ describe('os textos', () => {
   const agora = utc('2026-09-11T15:00:00Z');
 
   it('o alarme diz o que parou, há quanto tempo e o que isso custa', () => {
-    const s = avaliar(agora, {}, [proc]).filter((x) => x.atrasado);
+    // Rodou ontem, não rodou hoje: este é o caso "parou".
+    const s = avaliar(agora, { 'diagnosticos.envio': utc('2026-09-10T11:05:00Z') }, [
+      proc,
+    ]).filter((x) => x.atrasado);
     const t = textoDoAlarme(s, agora);
 
     assert.ok(t.includes('Envio dos diagnósticos das 8h'));
     assert.ok(t.includes('Prospects não recebem'));
-    assert.match(t, /parado há \d+h\d{2}/);
+    assert.match(t, /parado há/);
+  });
+
+  it('quem nunca rodou aparece como NUNCA executou, não como parado', () => {
+    const s = avaliar(agora, {}, [proc]).filter((x) => x.atrasado);
+    const t = textoDoAlarme(s, agora);
+
+    assert.ok(t.includes('NUNCA executou'));
+    assert.equal(/parado há/.test(t), false);
+    // E o rodapé que evita a caçada errada.
+    assert.ok(t.includes('Procure o agendamento desligado'));
+  });
+
+  it('sem nenhum "nunca executou", o rodapé não aparece', () => {
+    const s = avaliar(agora, { 'diagnosticos.envio': utc('2026-09-10T11:05:00Z') }, [
+      proc,
+    ]).filter((x) => x.atrasado);
+    assert.equal(textoDoAlarme(s, agora).includes('Procure o agendamento'), false);
+  });
+
+  /**
+   * "385h15" é tecnicamente certo e humanamente inútil: ninguém converte
+   * isso de cabeça. Foi o que saiu no WhatsApp do fechamento mensal.
+   */
+  describe('a duração em texto', () => {
+    it('abaixo de uma hora, em minutos', () => {
+      assert.equal(duracaoEmTexto(45), '45min');
+    });
+
+    it('até dois dias, em horas e minutos', () => {
+      assert.equal(duracaoEmTexto(555), '9h15');
+      assert.equal(duracaoEmTexto(120), '2h');
+    });
+
+    it('acima de dois dias, em dias', () => {
+      assert.equal(duracaoEmTexto(385 * 60 + 15), '16 dias e 1h');
+      assert.equal(duracaoEmTexto(48 * 60), '2 dias');
+    });
+
+    it('a fronteira de 48h ainda é hora', () => {
+      assert.equal(duracaoEmTexto(47 * 60 + 59), '47h59');
+    });
   });
 
   it('o pulso diz quantos estão em dia e por que ele existe', () => {

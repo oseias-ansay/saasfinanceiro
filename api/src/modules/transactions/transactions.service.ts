@@ -176,6 +176,25 @@ export async function deleteTransaction(db: Db, tenantId: string, id: string) {
   return { deleted: count ?? 0 };
 }
 
+/**
+ * Exclui vários títulos de uma vez.
+ *
+ * O `tenant_id` no filtro não é redundante com o RLS: ele garante que uma
+ * lista de ids vinda de outra empresa não apague nada em silêncio, e faz a
+ * contagem devolvida ser a de linhas realmente removidas desta empresa.
+ * A tela compara essa contagem com o que pediu e avisa se não bateu.
+ */
+export async function deleteManyTransactions(db: Db, tenantId: string, ids: string[]) {
+  const { error, count } = await db
+    .from('transactions')
+    .delete({ count: 'exact' })
+    .eq('tenant_id', tenantId)
+    .in('id', ids);
+
+  if (error) throw fromPostgrest(error);
+  return { deleted: count ?? 0, pedidos: ids.length };
+}
+
 /** Exclui o grupo inteiro de parcelas (o ON DELETE CASCADE cuida dos filhos). */
 export async function deleteTransactionGroup(db: Db, tenantId: string, id: string) {
   const { data: tx, error: e1 } = await db
@@ -189,11 +208,17 @@ export async function deleteTransactionGroup(db: Db, tenantId: string, id: strin
   if (!tx) return { deleted: 0 };
 
   const rootId = tx.parent_id ?? tx.id;
-  const { error } = await db
+  const { error, count } = await db
     .from('transactions')
-    .delete()
+    .delete({ count: 'exact' })
+    // O tenant no filtro, e não só no RLS: sem ele, um id de outra empresa
+    // faria o `or` varrer linhas que não são desta — o RLS barraria, mas a
+    // contagem devolvida mentiria sobre o que aconteceu.
+    .eq('tenant_id', tenantId)
     .or(`id.eq.${rootId},parent_id.eq.${rootId}`);
 
   if (error) throw fromPostgrest(error);
-  return { deleted: 1 };
+  // Contagem real, e não o `1` fixo de antes: a tela precisa saber quantas
+  // parcelas sumiram para poder avisar quando nenhuma sumiu.
+  return { deleted: count ?? 0 };
 }

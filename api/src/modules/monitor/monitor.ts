@@ -198,7 +198,22 @@ export interface Situacao {
   /** A hora marcada. Sucesso a partir daqui conta como em dia. */
   inicioJanela: Date | null;
   atrasado: boolean;
-  /** Há quanto tempo era para ter rodado. Nulo quando está em dia. */
+  /**
+   * Nunca houve execução bem-sucedida registrada.
+   *
+   * É um problema DIFERENTE de "parou", e a distinção não é semântica:
+   * "parado há 9h" manda procurar o que quebrou; "nunca executou" manda
+   * procurar o agendamento que não foi ligado. Até 21/09/2026 os dois
+   * casos usavam o mesmo texto, e o alarme mandava caçar uma quebra que
+   * não existia.
+   */
+  nuncaExecutou: boolean;
+  /**
+   * Há quantos minutos passou do prazo.
+   *
+   * Nulo quando está em dia OU quando nunca executou — neste segundo
+   * caso não existe "há quanto tempo parou", porque nunca andou.
+   */
   atrasoMin: number | null;
 }
 
@@ -226,21 +241,62 @@ export function avaliar(
     const atrasado =
       janela !== null && (ultimoSucesso === null || ultimoSucesso < janela.inicio);
 
+    const nuncaExecutou = atrasado && ultimoSucesso === null;
+
+    // Há quanto tempo passou do prazo.
+    //
+    // Duas correções de 21/09/2026:
+    //
+    // 1. Processo de INTERVALO tinha `limite = agora` por construção, o
+    //    que fazia `agora − limite` dar sempre ZERO. O alarme saía com
+    //    "parado há 0min", que é absurdo na cara de quem lê. Para esses,
+    //    o atraso se conta desde o último sucesso, descontado o
+    //    intervalo previsto — que é o que "atrasado" significa para algo
+    //    que deveria rodar o tempo todo.
+    //
+    // 2. Quem nunca executou não tem atraso: não existe "parado há X"
+    //    para o que nunca andou. Fica nulo, e o texto muda.
+    let atrasoMin: number | null = null;
+    if (atrasado && janela && !nuncaExecutou) {
+      const desde =
+        processo.expectativa.tipo === 'intervalo'
+          ? ultimoSucesso!.getTime() + processo.expectativa.minutos * 60_000
+          : janela.limite.getTime();
+      atrasoMin = Math.max(0, Math.round((agora.getTime() - desde) / 60_000));
+    }
+
     return {
       processo,
       ultimoSucesso,
       prazo: janela?.limite ?? null,
       inicioJanela: janela?.inicio ?? null,
       atrasado,
-      // Contado a partir do limite, que é quando a cobrança começou a
-      // fazer sentido. Contar do início inflaria o atraso em 45 minutos
-      // logo no primeiro alarme.
-      atrasoMin:
-        atrasado && janela
-          ? Math.round((agora.getTime() - janela.limite.getTime()) / 60_000)
-          : null,
+      nuncaExecutou,
+      atrasoMin,
     };
   });
+}
+
+/**
+ * Duração em português, na unidade que a pessoa usaria.
+ *
+ * "385h15" é tecnicamente certo e humanamente inútil: ninguém converte
+ * isso de cabeça. Acima de dois dias, a pergunta deixa de ser "quantas
+ * horas" e passa a ser "desde quando" — e a resposta em dias é a única
+ * que cabe numa notificação lida no celular.
+ */
+export function duracaoEmTexto(minutos: number): string {
+  if (minutos < 60) return `${minutos}min`;
+
+  const horas = Math.floor(minutos / 60);
+  if (horas < 48) {
+    const m = minutos % 60;
+    return m > 0 ? `${horas}h${String(m).padStart(2, '0')}` : `${horas}h`;
+  }
+
+  const dias = Math.floor(horas / 24);
+  const resto = horas % 24;
+  return resto > 0 ? `${dias} dias e ${resto}h` : `${dias} dias`;
 }
 
 /** O texto do alarme. Curto: vai para o WhatsApp, lido no celular. */
@@ -252,15 +308,28 @@ export function textoDoAlarme(atrasados: Situacao[], agora: Date): string {
   }).format(agora);
 
   const linhas = atrasados.map((s) => {
-    const h = Math.floor((s.atrasoMin ?? 0) / 60);
-    const m = (s.atrasoMin ?? 0) % 60;
-    const atraso = h > 0 ? `${h}h${String(m).padStart(2, '0')}` : `${m}min`;
-    return `• *${s.processo.nome}* — parado há ${atraso}\n  ${s.processo.consequencia}`;
+    const estado = s.nuncaExecutou
+      ? 'NUNCA executou'
+      : `parado há ${duracaoEmTexto(s.atrasoMin ?? 0)}`;
+    return `• *${s.processo.nome}* — ${estado}\n  ${s.processo.consequencia}`;
   });
+
+  // A frase que evita a caçada errada. Sem ela, "nunca executou" e
+  // "parado" levam ao mesmo lugar: procurar o que quebrou.
+  const nunca = atrasados.filter((s) => s.nuncaExecutou).length;
+  const rodape =
+    nunca > 0
+      ? '\n\n' +
+        (nunca === 1
+          ? 'O marcado como NUNCA executou não quebrou: ele nunca chegou a rodar.'
+          : 'Os marcados como NUNCA executou não quebraram: eles nunca chegaram a rodar.') +
+        ' Procure o agendamento desligado, não o defeito.'
+      : '';
 
   return (
     `⚠️ *Business Triage — processo parado*\n${quando}\n\n` +
     linhas.join('\n\n') +
+    rodape +
     '\n\nVeja o detalhe em: vw_monitor_processos'
   );
 }

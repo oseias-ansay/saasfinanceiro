@@ -80,6 +80,18 @@ export const unsettleSchema = z.object({
 });
 
 /**
+ * Exclusão em lote.
+ *
+ * Existe porque apagar um a um não é só lento: quem está limpando uma
+ * base inteira desiste no meio e fica com metade dos lançamentos, o que
+ * é pior do que não ter começado — o DRE e o extrato passam a mostrar um
+ * pedaço do histórico sem que ninguém perceba por quê.
+ */
+export const deleteManySchema = z.object({
+  ids: z.array(z.string().uuid()).min(1, 'Selecione ao menos um lançamento').max(500),
+});
+
+/**
  * Edição de um título já existente.
  *
  * Não permite alterar `type` nem o parcelamento: mudar uma despesa para
