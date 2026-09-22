@@ -38,7 +38,30 @@ export async function createTransaction(db: Db, tenantId: string, input: CreateT
   });
 
   if (error) throw fromPostgrest(error);
-  return data;
+  if (!input.paid) return data;
+
+  // Já pago: dá baixa na sequência, com a mesma RPC da tela de contas.
+  // Não é atômico com a criação — se a baixa falhar, o título existe e
+  // fica pendente, que é o estado seguro: nada some, nada entra no caixa
+  // sem ter entrado de fato. O usuário vê o título em aberto e dá baixa.
+  const rows = (data ?? []) as { id: string }[];
+  const ids = rows.map((r) => r.id);
+  const paidDate = input.paid_date ?? input.competence_date ?? input.due_date;
+
+  const { error: e2 } = await db.rpc('fn_settle_transactions', {
+    p_ids: ids,
+    p_paid_date: paidDate,
+    p_bank_account_id: input.bank_account_id ?? undefined,
+  });
+  if (e2) throw fromPostgrest(e2);
+
+  // Devolve o estado real, não o de antes da baixa.
+  const { data: liquidados, error: e3 } = await db
+    .from('transactions')
+    .select('*')
+    .in('id', ids);
+  if (e3) throw fromPostgrest(e3);
+  return liquidados;
 }
 
 /** Listagem paginada de Contas a Pagar/Receber sobre a view enriquecida. */

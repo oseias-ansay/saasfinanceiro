@@ -29,11 +29,29 @@ export const createTransactionSchema = z
 
     document_number: z.string().trim().max(60).optional(),
     notes: z.string().trim().max(1000).optional(),
+
+    /**
+     * Já nasce liquidado.
+     *
+     * Venda no débito, compra no Pix, conta paga no balcão: o dinheiro já se
+     * moveu quando o usuário abre a tela. Obrigá-lo a lançar e depois voltar
+     * para dar baixa é um passo a mais em que ele esquece — e o título fica
+     * "em aberto" para sempre, inflando o contas a pagar sem estar devendo.
+     */
+    paid: z.boolean().default(false),
+    /** Sem informar, usa a data do lançamento (competência) ou o vencimento. */
+    paid_date: isoDate.optional(),
   })
   .refine(
     (v) => v.installments === 1 || v.amount_mode !== 'total' || v.amount >= v.installments * 0.01,
     { message: 'Valor total insuficiente para o número de parcelas', path: ['amount'] },
-  );
+  )
+  // Parcelado nasce em aberto: marcar doze parcelas futuras como pagas no
+  // mesmo dia seria mentir para o fluxo de caixa. Baixa-se parcela a parcela.
+  .refine((v) => !v.paid || v.installments === 1, {
+    message: 'Lançamento parcelado nasce em aberto; dê baixa em cada parcela ao pagar',
+    path: ['paid'],
+  });
 
 export const listTransactionsSchema = z.object({
   type: z.enum(['receita', 'despesa']).optional(),
