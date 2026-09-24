@@ -24,6 +24,7 @@ import { calcularPlanoCiclo } from './planociclo.js';
 import { calcularHoraProdutiva } from './horaprodutiva.js';
 import { calcularCentros } from './centros.js';
 import { calcularFluxo } from './fluxo.js';
+import { lerPlanilha, type Mapeamento } from './planilha.js';
 
 export const equilibrioRouter = Router();
 equilibrioRouter.use(requireAuth, requireTenant);
@@ -77,6 +78,117 @@ equilibrioRouter.patch(
       if (error) throw fromPostgrest(error);
       if (!data) return next(notFound('Produto não encontrado'));
       res.json({ data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+/* -------------------------------------------------------------------- */
+/* Importação por planilha                                               */
+/* -------------------------------------------------------------------- */
+//
+// Dois passos, de propósito. O primeiro lê e devolve a conferência sem
+// tocar no banco; o segundo grava o que o usuário confirmou. Importação
+// que grava direto do arquivo é a que apaga o mix inteiro por causa de
+// uma coluna trocada, e o usuário só descobre quando a margem muda.
+
+const mapeamentoSchema = z
+  .object({
+    nome: z.string().optional(),
+    preco: z.string().optional(),
+    custo: z.string().optional(),
+    participacao: z.string().optional(),
+    faturamento: z.string().optional(),
+    quantidade: z.string().optional(),
+  })
+  .optional();
+
+/** Passo 1: lê o arquivo já convertido em linhas e devolve a conferência. */
+equilibrioRouter.post(
+  '/produtos/planilha',
+  ESCREVE,
+  validate(
+    z.object({
+      linhas: z.array(z.record(z.unknown())).min(1).max(2000),
+      mapeamento: mapeamentoSchema,
+    }),
+  ),
+  async (req, res, next) => {
+    try {
+      const { linhas, mapeamento } = req.body as {
+        linhas: Record<string, unknown>[];
+        mapeamento?: Mapeamento;
+      };
+      res.json(lerPlanilha(linhas, mapeamento));
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+/**
+ * Passo 2: grava, mesclando pelo nome.
+ *
+ * Só as quatro colunas que a planilha traz entram no upsert. Imposto,
+ * comissão e frete ficam de fora para serem PRESERVADOS: o PostgREST
+ * atualiza apenas as colunas presentes no corpo, então o que foi
+ * ajustado à mão sobrevive a uma reimportação de preços. Produto que
+ * não está na planilha também não é tocado.
+ */
+equilibrioRouter.post(
+  '/produtos/importar',
+  ESCREVE,
+  validate(
+    z.object({
+      produtos: z
+        .array(
+          z.object({
+            nome: z.string().trim().min(1).max(120),
+            preco: z.coerce.number().positive(),
+            custo_direto: z.coerce.number().min(0).default(0),
+            participacao_pct: z.coerce.number().min(0).max(100).default(0),
+          }),
+        )
+        .min(1)
+        .max(2000),
+    }),
+  ),
+  async (req, res, next) => {
+    try {
+      const tenant = req.tenantId!;
+      const { produtos } = req.body as {
+        produtos: { nome: string; preco: number; custo_direto: number; participacao_pct: number }[];
+      };
+
+      // Quem já existe, para poder dizer quantos foram criados e quantos
+      // atualizados. Sem isto a tela só conseguiria dizer "pronto".
+      const { data: atuais, error: e1 } = await req.supabase
+        .from('mix_produtos')
+        .select('nome')
+        .eq('tenant_id', tenant);
+      if (e1) throw fromPostgrest(e1);
+
+      const existentes = new Set(
+        ((atuais ?? []) as { nome: string }[]).map((p) => p.nome.trim().toLowerCase()),
+      );
+      const atualizados = produtos.filter((p) =>
+        existentes.has(p.nome.trim().toLowerCase()),
+      ).length;
+
+      const { error } = await req.supabase
+        .from('mix_produtos')
+        .upsert(
+          produtos.map((p) => ({ ...p, tenant_id: tenant })) as never,
+          { onConflict: 'tenant_id,nome' },
+        );
+      if (error) throw fromPostgrest(error);
+
+      res.json({
+        gravados: produtos.length,
+        atualizados,
+        criados: produtos.length - atualizados,
+      });
     } catch (e) {
       next(e);
     }
