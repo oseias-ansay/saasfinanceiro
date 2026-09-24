@@ -1591,6 +1591,13 @@ equilibrioRouter.delete('/plano-ciclo/:id', ESCREVE, async (req, res, next) => {
 /* ==================================================================== */
 
 const horaSchema = z.object({
+  /**
+   * Folha informada à mão. Nulo devolve o comando à medição.
+   *
+   * `nullish` e não `optional`: a tela precisa conseguir APAGAR o valor
+   * para voltar ao medido, e um campo ausente seria lido como "não mexi".
+   */
+  folha_mensal: z.coerce.number().min(0).max(99_999_999).nullish(),
   pessoas: z.coerce.number().int().min(1).max(9999).nullish(),
   horas_contratadas: z.coerce.number().min(1).max(744).optional(),
   horas_ferias: z.coerce.number().min(0).optional(),
@@ -1645,8 +1652,13 @@ equilibrioRouter.get('/hora-produtiva', async (req, res, next) => {
       return v === undefined ? padrao : Number(v) || 0;
     };
 
+    // A informada vence a medida; nula devolve o comando à medição.
+    const folhaInformada =
+      c.folha_mensal === null || c.folha_mensal === undefined ? null : Number(c.folha_mensal);
+    const folhaEfetiva = folhaInformada ?? folhaMedida;
+
     const entrada = {
-      folhaMensal: q('folha', folhaMedida),
+      folhaMensal: q('folha', folhaEfetiva),
       pessoas: q('pessoas', Number(c.pessoas ?? 0)),
       horasContratadas: q('horas', Number(c.horas_contratadas ?? 220)),
       horasFerias: q('ferias', Number(c.horas_ferias ?? 0)),
@@ -1670,6 +1682,11 @@ equilibrioRouter.get('/hora-produtiva', async (req, res, next) => {
         // Zero com meses medidos quase sempre significa categoria sem
         // `papel = 'folha'`, não empresa sem funcionário.
         folha_tem_categoria_marcada: meses.some((m) => Number(m.folha ?? 0) > 0),
+        // Qual dos dois números a conta usou. A tela precisa dizer isso:
+        // um valor sem procedência é a forma mais rápida de perder a
+        // confiança no resultado inteiro.
+        folha_origem: folhaInformada === null ? 'medida' : 'informada',
+        folha_efetiva: folhaEfetiva,
       },
       entrada,
       resultado: calcularHoraProdutiva(entrada),
