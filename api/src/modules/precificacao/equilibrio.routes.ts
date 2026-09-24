@@ -408,7 +408,10 @@ equilibrioRouter.get('/giro', async (req, res, next) => {
         .maybeSingle(),
       req.supabase
         .from('vw_dre_monthly')
-        .select('competencia, custos_variaveis')
+        // `receita_bruta` entrou junto com a régua de venda diária, em
+        // 24/09/2026. Mesma coluna e mesma média de meses que a tela de
+        // Ciclo usa — as duas precisam partir do mesmo número.
+        .select('competencia, custos_variaveis, receita_bruta')
         .eq('tenant_id', tenant)
         .lt('competencia', `${new Date().toISOString().slice(0, 7)}-01`)
         .order('competencia', { ascending: false })
@@ -441,8 +444,12 @@ equilibrioRouter.get('/giro', async (req, res, next) => {
     const variaveis = mesesDre.length
       ? mesesDre.reduce((s, m) => s + Number(m.custos_variaveis ?? 0), 0) / mesesDre.length
       : 0;
+    const receitaMedia = mesesDre.length
+      ? mesesDre.reduce((s, m) => s + Number(m.receita_bruta ?? 0), 0) / mesesDre.length
+      : 0;
 
     const entrada = {
+      receitaMensal: Number(req.query.receita ?? Math.round(receitaMedia * 100) / 100) || 0,
       despesasFixasMensais: total,
       custosVariaveisMensais: Math.round(variaveis * 100) / 100,
       pmrDias: Number(req.query.pmr ?? media('pmr_dias')) || 0,
@@ -467,6 +474,7 @@ equilibrioRouter.get('/giro', async (req, res, next) => {
         pmp_dias: media('pmp_dias'),
         meses_prazos: linhasPrazo.length,
         custos_variaveis_mensais: entrada.custosVariaveisMensais,
+        receita_mensal: Math.round(receitaMedia * 100) / 100,
         meses_dre: mesesDre.length,
       },
       entrada,

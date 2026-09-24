@@ -27,15 +27,52 @@
  * =====================================================================
  * O NÚMERO QUE FAZ ALGUÉM AGIR
  * =====================================================================
- * `custoPorDiaDeCiclo`. Com desembolso diário de R$ 4.000, cada dia
- * cortado do prazo de recebimento devolve R$ 4.000 ao caixa — sem vender
- * nada a mais, sem tomar crédito.
+ * `valorDeUmDiaDeCiclo`. Com venda diária de R$ 6.000, cada dia cortado
+ * do prazo de recebimento devolve R$ 6.000 ao caixa — sem vender nada a
+ * mais, sem tomar crédito.
  *
  * É o único número desta tela que vira ligação para o financeiro na
  * mesma tarde, e por isso ele é calculado mesmo quando o resto falta.
+ *
+ * =====================================================================
+ * UM DIA DE CICLO VALE UMA VENDA DIÁRIA — 24/09/2026
+ * =====================================================================
+ * Até esta data o valor de um dia aqui era o DESEMBOLSO diário,
+ * (fixas + variáveis) / 30, enquanto a tela de Ciclo Financeiro usava a
+ * VENDA diária, receita / 30. O mesmo cliente via duas respostas para a
+ * mesma pergunta em duas telas, e a segunda que ele abrisse destruía a
+ * confiança na primeira.
+ *
+ * A régua escolhida é a venda diária, por três motivos. O ciclo, na
+ * plataforma, é medido em dias de venda — `ciclo.ts` deriva os prazos de
+ * saldo ÷ venda diária e tem teste para a identidade
+ * `ciclo × venda diária = estoque + a receber − a pagar`. Usar outro
+ * multiplicador quebraria a identidade que o próprio código promete. O
+ * Plano de Redução de Ciclo já convertia dias em reais por venda diária.
+ * E é a régua da planilha da aula 4.1, que o aluno tem em mãos.
+ *
+ * Nenhum multiplicador único é exato, e vale registrar por quê: estoque
+ * e fornecedor são financiados a CUSTO, enquanto o a receber carrega
+ * PREÇO DE VENDA. O rigoroso seria
+ * `PME × CMV/30 + PMR × receita/30 − PMP × compras/30`, que exige CMV e
+ * compras que a plataforma ainda não mede. Entre errar para cima com uma
+ * régua só e acertar com três números que ninguém preenche, a escolha é
+ * a régua só — declarada na tela.
+ *
+ * O desembolso diário NÃO sumiu: ele responde a outra pergunta, que é
+ * quantos dias de operação o caixa cobre. O que saiu foi o rótulo que o
+ * fazia parecer resposta para esta.
  */
 
 export interface EntradaGiro {
+  /**
+   * Receita do último mês fechado. A régua que converte dias em reais.
+   *
+   * Mesma fonte da tela de Ciclo (`receita_bruta` de `vw_dre_monthly`),
+   * de propósito: as duas telas têm de partir do mesmo número.
+   */
+  receitaMensal: number;
+
   /** Média mensal das despesas fixas, já revisadas pelo usuário. */
   despesasFixasMensais: number;
   /** Custos que variam com a venda, no mês. */
@@ -64,13 +101,24 @@ export interface EntradaGiro {
 
 export interface ResultadoGiro {
   cicloFinanceiroDias: number;
+
+  /** Receita ÷ 30. A régua que converte dias de ciclo em reais. */
+  vendaDiaria: number;
+
+  /**
+   * (Fixas + variáveis) ÷ 30 — quanto a operação QUEIMA por dia.
+   *
+   * Serve à cobertura de caixa, não ao valor do ciclo. São perguntas
+   * diferentes: uma é "quanto tempo o caixa aguenta", a outra é "quanto
+   * um dia de prazo devolve".
+   */
   desembolsoDiario: number;
 
   ncgEstrutural: number;
   ncgRealizada: number | null;
 
-  /** Quanto cada dia de ciclo prende de caixa. */
-  custoPorDiaDeCiclo: number;
+  /** Quanto cada dia de ciclo prende de caixa. Igual à venda diária. */
+  valorDeUmDiaDeCiclo: number;
 
   /** Caixa menos a NCG estrutural. Negativo é buraco. */
   folga: number | null;
@@ -97,6 +145,7 @@ const num = (v: unknown): number => {
 const brl = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 export function calcularGiro(e: EntradaGiro): ResultadoGiro {
+  const receita = num(e.receitaMensal);
   const fixas = num(e.despesasFixasMensais);
   const variaveis = num(e.custosVariaveisMensais);
 
@@ -106,10 +155,11 @@ export function calcularGiro(e: EntradaGiro): ResultadoGiro {
 
   const vazio = (erro: string): ResultadoGiro => ({
     cicloFinanceiroDias: 0,
+    vendaDiaria: 0,
     desembolsoDiario: 0,
     ncgEstrutural: 0,
     ncgRealizada: null,
-    custoPorDiaDeCiclo: 0,
+    valorDeUmDiaDeCiclo: 0,
     folga: null,
     coberturaDias: null,
     descolamento: null,
@@ -123,6 +173,15 @@ export function calcularGiro(e: EntradaGiro): ResultadoGiro {
     );
   }
 
+  // A receita entrou como obrigatória em 24/09/2026, junto com a régua
+  // de venda diária. Sem ela o ciclo continua saindo em dias, mas não há
+  // como convertê-lo em reais — e o número em reais é o que faz agir.
+  if (receita <= 0) {
+    return vazio(
+      'Informe a receita do último mês fechado. Ela é a régua que converte dias de ciclo em reais — a mesma usada na tela de Ciclo Financeiro.',
+    );
+  }
+
   if ([pmr, pmp, pme].some((d) => d < 0)) {
     return vazio('Prazos não podem ser negativos.');
   }
@@ -131,9 +190,11 @@ export function calcularGiro(e: EntradaGiro): ResultadoGiro {
   // explicável — e num número que serve para decidir, ser conferível na
   // calculadora do celular vale mais que a terceira casa decimal.
   const desembolsoDiario = r2((fixas + variaveis) / 30);
+  const vendaDiaria = r2(receita / 30);
 
   const ciclo = r2(pme + pmr - pmp);
-  const ncgEstrutural = r2(ciclo * desembolsoDiario);
+  // Venda diária, e não desembolso: ver a nota do topo do arquivo.
+  const ncgEstrutural = r2(ciclo * vendaDiaria);
 
   const alertas: string[] = [];
 
@@ -192,13 +253,15 @@ export function calcularGiro(e: EntradaGiro): ResultadoGiro {
 
   return {
     cicloFinanceiroDias: ciclo,
+    vendaDiaria,
     desembolsoDiario,
     ncgEstrutural,
     ncgRealizada,
-    // Um dia de ciclo vale um dia de desembolso. É a mesma conta da NCG
-    // com ciclo igual a 1, e é o número que transforma "negocie prazo"
-    // em "negocie prazo e ganhe isto".
-    custoPorDiaDeCiclo: desembolsoDiario,
+    // Um dia de ciclo vale uma venda diária. É a mesma conta da NCG com
+    // ciclo igual a 1, é o número que transforma "negocie prazo" em
+    // "negocie prazo e ganhe isto", e é o MESMO que a tela de Ciclo
+    // Financeiro mostra — que era o ponto de toda esta mudança.
+    valorDeUmDiaDeCiclo: vendaDiaria,
     folga,
     coberturaDias,
     descolamento,

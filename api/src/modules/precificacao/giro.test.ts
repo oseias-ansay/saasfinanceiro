@@ -11,9 +11,14 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { calcularGiro, type EntradaGiro } from './giro.js';
+import { calcularCiclo } from './ciclo.js';
 
 /** Comércio comum: recebe em 45, paga em 20, gira estoque em 30. */
 const base: EntradaGiro = {
+  // Receita de 150.000 dá venda diária de 5.000, contra desembolso de
+  // 4.000. Os dois números são diferentes DE PROPÓSITO: se fossem
+  // iguais, os testes abaixo passariam mesmo com a régua trocada.
+  receitaMensal: 150_000,
   despesasFixasMensais: 60_000,
   custosVariaveisMensais: 60_000,
   pmrDias: 45,
@@ -32,6 +37,17 @@ describe('o ciclo e o desembolso', () => {
     assert.equal(r.desembolsoDiario, 4_000); // 120.000 / 30
   });
 
+  it('venda diária é a receita dividida por 30', () => {
+    const r = calcularGiro(base);
+    assert.equal(r.vendaDiaria, 5_000); // 150.000 / 30
+  });
+
+  it('sem receita, não há como converter dias em reais', () => {
+    const r = calcularGiro({ ...base, receitaMensal: 0 });
+    assert.equal(r.erro !== null, true);
+    assert.match(r.erro!, /receita do último mês fechado/);
+  });
+
   it('sem custo informado, não calcula', () => {
     const r = calcularGiro({ ...base, despesasFixasMensais: 0, custosVariaveisMensais: 0 });
     assert.equal(r.erro !== null, true);
@@ -45,25 +61,45 @@ describe('o ciclo e o desembolso', () => {
 });
 
 describe('NCG estrutural', () => {
-  it('é o ciclo vezes o desembolso diário', () => {
+  it('é o ciclo vezes a VENDA diária, não o desembolso', () => {
     const r = calcularGiro(base);
-    assert.equal(r.ncgEstrutural, 220_000); // 55 × 4.000
+    assert.equal(r.ncgEstrutural, 275_000); // 55 × 5.000
+    // A régua antiga daria 220.000. O teste falha se alguém voltar a ela.
+    assert.notEqual(r.ncgEstrutural, 55 * r.desembolsoDiario);
   });
 
-  it('cada dia de ciclo vale um dia de desembolso', () => {
+  it('cada dia de ciclo vale uma venda diária', () => {
     const r = calcularGiro(base);
-    assert.equal(r.custoPorDiaDeCiclo, 4_000);
+    assert.equal(r.valorDeUmDiaDeCiclo, r.vendaDiaria);
+    assert.equal(r.valorDeUmDiaDeCiclo, 5_000);
 
     // A conferência que dá sentido ao número: cortar 5 dias do PMR tem
-    // de reduzir a NCG em exatamente 5 × custoPorDiaDeCiclo.
+    // de reduzir a NCG em exatamente 5 × valorDeUmDiaDeCiclo.
     const cortado = calcularGiro({ ...base, pmrDias: 40 });
-    assert.equal(r.ncgEstrutural - cortado.ncgEstrutural, 5 * r.custoPorDiaDeCiclo);
+    assert.equal(r.ncgEstrutural - cortado.ncgEstrutural, 5 * r.valorDeUmDiaDeCiclo);
+  });
+
+  /**
+   * O acordo entre as duas telas, que é o motivo da mudança de
+   * 24/09/2026. `ciclo.ts` define valorDeUmDia como receita ÷ 30; aqui
+   * tem de ser o mesmo número, senão o cliente vê duas respostas para a
+   * mesma pergunta e para de confiar nas duas.
+   */
+  it('o valor de um dia é o mesmo da tela de Ciclo Financeiro', () => {
+    const r = calcularGiro(base);
+    const c = calcularCiclo({
+      receitaMensal: base.receitaMensal,
+      estoque: 60_000,
+      aReceber: 250_000,
+      aPagar: 90_000,
+    });
+    assert.equal(r.valorDeUmDiaDeCiclo, c.valorDeUmDia);
   });
 
   it('sem estoque, a conta continua válida — é o caso de serviço', () => {
     const r = calcularGiro({ ...base, pmeDias: 0 });
     assert.equal(r.cicloFinanceiroDias, 25);
-    assert.equal(r.ncgEstrutural, 100_000);
+    assert.equal(r.ncgEstrutural, 125_000); // 25 × 5.000
   });
 
   /**
@@ -74,7 +110,7 @@ describe('NCG estrutural', () => {
   it('ciclo negativo devolve NCG negativa, e isso é bom', () => {
     const r = calcularGiro({ ...base, pmrDias: 0, pmeDias: 0, pmpDias: 30 });
     assert.equal(r.cicloFinanceiroDias, -30);
-    assert.equal(r.ncgEstrutural, -120_000);
+    assert.equal(r.ncgEstrutural, -150_000); // −30 × 5.000
     assert.equal(r.alertas.some((a) => /se financia sozinha/.test(a)), true);
   });
 });
@@ -108,7 +144,7 @@ describe('NCG realizada', () => {
   });
 
   it('descolamento pequeno não gera ruído', () => {
-    // 220.000 estrutural contra 230.000 realizada: 4,5% de desvio.
+    // 275.000 estrutural contra 230.000 realizada: 16,4% de desvio.
     const r = calcularGiro({ ...comDados, contasAReceber: 260_000 });
     assert.equal(r.alertas.some((a) => /pico|alívio/.test(a)), false);
   });
@@ -117,13 +153,16 @@ describe('NCG realizada', () => {
 describe('folga de caixa', () => {
   it('caixa acima da NCG é folga positiva', () => {
     const r = calcularGiro({ ...base, caixaDisponivel: 300_000 });
-    assert.equal(r.folga, 80_000);
+    assert.equal(r.folga, 25_000); // 300.000 − 275.000
+    // A cobertura segue o DESEMBOLSO, não a venda: ela responde quantos
+    // dias o caixa aguenta pagando as contas, e não quantos dias de
+    // ciclo ele cobre. 300.000 ÷ 4.000 = 75.
     assert.equal(r.coberturaDias, 75);
   });
 
   it('caixa abaixo da NCG diz quanto falta, e quem está financiando', () => {
     const r = calcularGiro({ ...base, caixaDisponivel: 150_000 });
-    assert.equal(r.folga, -70_000);
+    assert.equal(r.folga, -125_000); // 150.000 − 275.000
     assert.equal(r.alertas.some((a) => /está sendo financiada por alguém/.test(a)), true);
   });
 
@@ -141,7 +180,7 @@ describe('folga de caixa', () => {
 
   it('caixa zero é informação, não ausência', () => {
     const r = calcularGiro({ ...base, caixaDisponivel: 0 });
-    assert.equal(r.folga, -220_000);
+    assert.equal(r.folga, -275_000);
     assert.equal(r.coberturaDias, 0);
   });
 
