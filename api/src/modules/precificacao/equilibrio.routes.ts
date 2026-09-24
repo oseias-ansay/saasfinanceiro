@@ -547,7 +547,9 @@ equilibrioRouter.get('/ciclo', async (req, res, next) => {
   try {
     const tenant = req.tenantId!;
 
-    const [dre, contas, estoque] = await Promise.all([
+    const db = req.supabase as unknown as { from: (t: string) => any };
+
+    const [dre, contas, estoque, historico] = await Promise.all([
       req.supabase
         .from('vw_dre_monthly')
         .select('competencia, receita_bruta')
@@ -560,6 +562,16 @@ equilibrioRouter.get('/ciclo', async (req, res, next) => {
         .select('natureza, total_aberto')
         .eq('tenant_id', tenant),
       estoqueInformado(req.supabase, tenant),
+      // O histórico da própria empresa — entrou em 24/09/2026 para dar
+      // um parâmetro que não dependa de setor. Seis meses: o suficiente
+      // para ver tendência, pouco o bastante para caber na tela.
+      db
+        .from('vw_ciclo_mensal')
+        .select('competencia, ciclo_financeiro, estoque_informado, dinheiro_preso')
+        .eq('tenant_id', tenant)
+        .lt('competencia', `${new Date().toISOString().slice(0, 7)}-01`)
+        .order('competencia', { ascending: false })
+        .limit(6),
     ]);
 
     for (const r of [dre, contas]) {
@@ -582,6 +594,24 @@ equilibrioRouter.get('/ciclo', async (req, res, next) => {
       a_pagar: aberto('a_pagar'),
       estoque: estoque.valor,
       estoque_competencia: estoque.competencia,
+      /**
+       * Ciclo dos meses fechados, do mais recente para trás.
+       *
+       * Falha aqui não derruba a tela: a view é nova e pode não existir
+       * num banco que ainda não aplicou o SQL 54. Sem histórico a tela
+       * mostra o que sempre mostrou, em vez de exibir erro numa
+       * ferramenta que funcionava.
+       */
+      historico: historico.error
+        ? []
+        : ((historico.data ?? []) as any[])
+            .map((h) => ({
+              competencia: String(h.competencia).slice(0, 7),
+              ciclo: Number(h.ciclo_financeiro),
+              dinheiro_preso: Number(h.dinheiro_preso),
+              estoque_informado: Boolean(h.estoque_informado),
+            }))
+            .reverse(),
     };
 
     const q = (nome: string, padrao: number) => {
