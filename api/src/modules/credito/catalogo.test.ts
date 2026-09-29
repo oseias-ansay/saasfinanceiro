@@ -58,6 +58,26 @@ describe('a integridade do catálogo', () => {
   });
 });
 
+/**
+ * A tela de carteira do consultor precisa converter "itens entregues"
+ * em percentual sem baixar o catálogo — ela lista dezenas de empresas e
+ * uma chamada a mais por linha não se paga. Por isso ela guarda os dois
+ * totais como constante.
+ *
+ * Constante duplicada só é segura se algo quebrar quando ela envelhecer.
+ * É este teste. Se falhar, atualize OBRIGATORIOS_SEM_IMOVEL e
+ * OBRIGATORIOS_COM_IMOVEL em `pages/CreditoCarteira.tsx`.
+ */
+describe('os totais que a tela do consultor repete', () => {
+  it('são 11 sem imóvel e 13 com imóvel', () => {
+    const semImovel = DOCUMENTOS.filter((d) => d.obrigatorio && d.grupo !== 'imovel').length;
+    const comImovel = DOCUMENTOS.filter((d) => d.obrigatorio).length;
+
+    assert.equal(semImovel, 11, 'atualize OBRIGATORIOS_SEM_IMOVEL no front-end');
+    assert.equal(comImovel, 13, 'atualize OBRIGATORIOS_COM_IMOVEL no front-end');
+  });
+});
+
 describe('o progresso', () => {
   const obrigatoriosSemImovel = DOCUMENTOS.filter(
     (d) => d.obrigatorio && d.grupo !== 'imovel',
