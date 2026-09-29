@@ -150,6 +150,28 @@ const schema = z.object({
   MONITOR_WHATSAPP: z.string().default(''),
   MONITOR_INSTANCIA: z.string().default('wa_ultimo'),
 
+  // ---- Dossiê de crédito ----
+  //
+  // Para onde a API avisa que chegou documento novo. O n8n recebe a URL
+  // assinada, baixa o arquivo e põe na pasta do cliente no Drive.
+  //
+  // Vazio é estado de repouso válido, e não defeito: o documento é
+  // recebido e guardado no Storage do mesmo jeito, ficando apenas sem a
+  // cópia no Drive. É o que permite a funcionalidade subir antes de a
+  // credencial do Google existir.
+  N8N_CREDITO_URL: z
+    .string()
+    .default('')
+    .refine((v) => v === '' || /^https?:\/\//.test(v), 'Informe uma URL http(s)'),
+
+  // Quem recebe o aviso de documento novo. Vazio cai no MONITOR_WHATSAPP;
+  // vazio nos dois só registra em log.
+  CREDITO_WHATSAPP: z.string().default(''),
+
+  // Quanto tempo esperar antes de avisar de novo sobre a mesma empresa.
+  // Quinze arquivos numa tarde são um evento, não quinze.
+  CREDITO_AVISO_INTERVALO_MIN: z.coerce.number().int().min(0).max(1440).default(60),
+
   // Ligar o relógio interno que roda a verificação.
   //
   // Desligado em desenvolvimento de propósito: cada `npm run dev` na sua

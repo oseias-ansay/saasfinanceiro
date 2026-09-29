@@ -28,6 +28,8 @@ import { diagnosticoPublicoRouter } from './modules/diagnosticos/publico.routes.
 import { metaRouter } from './modules/meta/meta.routes.js';
 import { fechamentoRouter } from './modules/mensal/fechamento.routes.js';
 import { crmRouter } from './modules/crm/crm.routes.js';
+import { creditoRouter } from './modules/credito/credito.routes.js';
+import { creditoWebhookRouter } from './modules/credito/credito.webhook.routes.js';
 
 export function createApp() {
   const app = express();
@@ -64,6 +66,7 @@ export function createApp() {
   app.use('/api/v1/treinamento', treinamentoRouter);
   app.use('/api/v1/fechamento', fechamentoRouter);
   app.use('/api/v1/crm', crmRouter);
+  app.use('/api/v1/credito', creditoRouter);
   // Antes do n8nRouter de propósito: montado depois, o prefixo mais curto
   // casaria primeiro e a requisição passaria por dois rate limits e duas
   // verificações de segredo antes de chegar aqui.
@@ -73,6 +76,7 @@ export function createApp() {
   app.use('/api/v1/webhooks/n8n/mensal', mensalRouter);
   app.use('/api/v1/webhooks/n8n/whatsapp', whatsappRouter);
   app.use('/api/v1/webhooks/n8n/meta', metaRouter);
+  app.use('/api/v1/webhooks/n8n/credito', creditoWebhookRouter);
   app.use('/api/v1/webhooks/n8n', n8nRouter);
 
   // Fora do prefixo /n8n de propósito: a Evolution fala direto com a API
