@@ -1,0 +1,324 @@
+{
+  "name": "12 — Reenvio dos documentos de crédito pendentes",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "a-cada-15-min",
+      "name": "A cada 15 minutos",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.API_URL }}/api/v1/webhooks/n8n/credito/pendentes",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-n8n-secret",
+              "value": "={{ $env.N8N_WEBHOOK_SECRET }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "buscar-a-fila",
+      "name": "Buscar a fila",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data",
+        "options": {}
+      },
+      "id": "cada-pendente",
+      "name": "Cada pendente",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -20,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "pasta",
+              "leftValue": "={{ $json.body.drive_folder_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "id": "já-tem-pasta?",
+      "name": "Já tem pasta?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        200,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "={{ $('Cada pendente').item.json.empresa }}{{ $('Cada pendente').item.json.cnpj ? ' - ' + $('Cada pendente').item.json.cnpj : '' }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.DRIVE_PASTA_RAIZ }}"
+        },
+        "options": {}
+      },
+      "id": "criar-pasta-da-empresa",
+      "name": "Criar pasta da empresa",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        420,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Cada pendente').item.json.url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "id": "baixar-do-supabase",
+      "name": "Baixar do Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "name": "={{ $('Cada pendente').item.json.item }} - {{ $('Cada pendente').item.json.nome_arquivo }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.pastaId }}"
+        },
+        "options": {}
+      },
+      "id": "subir-para-o-drive",
+      "name": "Subir para o Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        860,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.API_URL }}/api/v1/webhooks/n8n/credito",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-n8n-secret",
+              "value": "={{ $env.N8N_WEBHOOK_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  documento_id: $('Cada pendente').item.json.documento_id,\n  drive_file_id: $json.id,\n  drive_folder_id: $('Guardar o id da pasta').item.json.pastaId,\n  drive_folder_url: $('Guardar o id da pasta').item.json.pastaUrl\n}) }}",
+        "options": {}
+      },
+      "id": "avisar-a-api",
+      "name": "Avisar a API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsMode": "runOnceForEachItem",
+        "jsCode": "// De onde vier a pasta — do corpo, quando a empresa já tem uma,\n// ou do nó que acabou de criar — daqui para a frente o fluxo usa\n// um nome só. Sem isso, cada nó seguinte precisaria saber por\n// qual dos dois caminhos a execução veio.\nconst corpo = $('Cada pendente').item.json;\nconst pastaId = corpo.drive_folder_id || $json.id;\nreturn { json: {\n  pastaId,\n  // Só devolve a URL quando a pasta é nova: a API grava uma vez\n  // e não precisa reescrever a cada arquivo.\n  pastaUrl: corpo.drive_folder_id ? null : `https://drive.google.com/drive/folders/${pastaId}`,\n} };"
+      },
+      "id": "guardar-o-id-da-pasta",
+      "name": "Guardar o id da pasta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "width": 720,
+        "height": 260,
+        "content": "## Reenvio dos que ficaram para trás\n\nA cada 15 minutos pergunta à API quais documentos ainda não foram ao Drive e reprocessa cada um. É o par do fluxo 11: aquele trata o documento que ACABOU de chegar, este trata o que falhou ou chegou enquanto o Drive estava desligado.\n\n**Serve também para a primeira carga:** documentos enviados antes de o `N8N_CREDITO_URL` existir entram por aqui, sem ninguém reenviar nada.\n\nA API para de listar um documento depois de 3 tentativas — o que o Drive recusa de verdade não fica em laço escondendo os pendentes legítimos.\n\nMesmas variáveis do fluxo 11: `API_URL`, `N8N_WEBHOOK_SECRET`, `DRIVE_PASTA_RAIZ`."
+      },
+      "id": "leia-me-2",
+      "name": "Leia-me",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        -40
+      ]
+    }
+  ],
+  "connections": {
+    "A cada 15 minutos": {
+      "main": [
+        [
+          {
+            "node": "Buscar a fila",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar a fila": {
+      "main": [
+        [
+          {
+            "node": "Cada pendente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cada pendente": {
+      "main": [
+        [
+          {
+            "node": "Já tem pasta?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Já tem pasta?": {
+      "main": [
+        [
+          {
+            "node": "Guardar o id da pasta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Criar pasta da empresa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Criar pasta da empresa": {
+      "main": [
+        [
+          {
+            "node": "Guardar o id da pasta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar o id da pasta": {
+      "main": [
+        [
+          {
+            "node": "Baixar do Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Baixar do Supabase": {
+      "main": [
+        [
+          {
+            "node": "Subir para o Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Subir para o Drive": {
+      "main": [
+        [
+          {
+            "node": "Avisar a API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}

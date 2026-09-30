@@ -98,6 +98,11 @@ creditoWebhookRouter.post('/', validate(retornoSchema), async (req, res, next) =
  * O n8n consulta, reprocessa e devolve pelo POST acima. Fica aqui, e não
  * num relógio interno da API, porque quem sabe falar com o Google é o
  * fluxo — a API só sabe quais arquivos estão pendentes.
+ *
+ * Devolve cada item no MESMO formato do aviso em tempo real, com URL
+ * assinada e tudo. Sem isso o fluxo precisaria de dois caminhos —
+ * um para o documento que acabou de chegar e outro para o que ficou
+ * atrasado — e o segundo, usado raramente, seria o que apodrece.
  */
 creditoWebhookRouter.get('/pendentes', async (_req, res, next) => {
   try {
@@ -110,10 +115,53 @@ creditoWebhookRouter.get('/pendentes', async (_req, res, next) => {
       // fila num laço que esconde os pendentes de verdade.
       .lt('sync_tentativas', 3)
       .order('enviado_em', { ascending: true })
-      .limit(50);
+      // Vinte, e não cinquenta: cada um custa uma URL assinada e uma
+      // consulta de empresa. A fila é drenada de novo no próximo ciclo.
+      .limit(20);
 
     if (error) throw fromPostgrest(error);
-    res.json({ data: data ?? [] });
+
+    const itens = [];
+    for (const d of ((data ?? []) as any[])) {
+      const { data: url } = await supabaseAdmin.storage
+        .from('credito')
+        .createSignedUrl(String(d.storage_path), 3600);
+
+      // Sem URL o item é inútil para o fluxo. Sai da lista em vez de ir
+      // pela metade e voltar como falha — a falha real é do Storage, e
+      // aparece no log, não na contagem de tentativas do documento.
+      if (!url?.signedUrl) {
+        logger.warn({ id: d.id }, 'Não consegui assinar URL de documento pendente');
+        continue;
+      }
+
+      const { data: empresa } = await admin()
+        .from('tenants')
+        .select('name, tax_id')
+        .eq('id', d.tenant_id)
+        .maybeSingle();
+
+      const { data: dossie } = await admin()
+        .from('credito_dossies')
+        .select('drive_folder_id')
+        .eq('tenant_id', d.tenant_id)
+        .maybeSingle();
+
+      itens.push({
+        documento_id: d.id,
+        tenant_id: d.tenant_id,
+        empresa: (empresa as any)?.name ?? 'Empresa',
+        cnpj: (empresa as any)?.tax_id ?? null,
+        drive_folder_id: (dossie as any)?.drive_folder_id ?? null,
+        item: d.item,
+        grupo: d.grupo,
+        nome_arquivo: d.nome_arquivo,
+        url: url.signedUrl,
+        tentativas: d.sync_tentativas,
+      });
+    }
+
+    res.json({ data: itens });
   } catch (e) {
     next(e);
   }
