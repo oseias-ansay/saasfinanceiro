@@ -174,3 +174,156 @@ export async function gerarAnalise<T>(
     ultimoErro instanceof Error ? ultimoErro.message : String(ultimoErro),
   );
 }
+
+/* ==================================================================== */
+/* Conversa                                                              */
+/* ==================================================================== */
+
+/**
+ * Uma volta de conversa: texto livre, sem schema.
+ *
+ * =====================================================================
+ * POR QUE NÃO REUSAR `gerarAnalise`
+ * =====================================================================
+ * Aquela função existe para arrancar um objeto validado do modelo, e a
+ * retentativa dela é "você errou o formato, refaça". Numa conversa não
+ * há formato para errar: qualquer texto é resposta válida. Reusar
+ * significaria inventar um schema só para ter o que validar.
+ *
+ * E tem a diferença que decide: ali o prompt é único e descartável; aqui
+ * o bloco de sistema é o MESMO em todos os turnos da conversa, o que
+ * permite cache.
+ *
+ * =====================================================================
+ * O CACHE DE PROMPT É O QUE TORNA ISTO VIÁVEL
+ * =====================================================================
+ * O plano de ação inteiro vai no bloco de sistema — alguns milhares de
+ * tokens, idênticos a cada pergunta. Sem cache, cada "e a terceira?"
+ * custaria a releitura do plano completo, e a conversa de dez turnos
+ * pagaria dez vezes pelo mesmo texto.
+ *
+ * Com `cache_control: ephemeral`, a primeira pergunta grava e as
+ * seguintes leem por cerca de um décimo do preço. A janela do cache é de
+ * uns cinco minutos e se renova a cada leitura, o que casa com o ritmo
+ * de uma conversa de verdade.
+ *
+ * Duas consequências práticas:
+ *
+ *   • O BLOCO CACHEADO PRECISA SER BYTE A BYTE IGUAL. Qualquer coisa
+ *     variável nele — a hora, um contador, um "olá, Maria" — invalida o
+ *     cache a cada turno e o custo volta ao cheio sem nenhum sintoma
+ *     visível. É por isso que o contexto declara a DATA de hoje, e não a
+ *     hora.
+ *   • O CONSUMO DE CACHE É DEVOLVIDO E GRAVADO. Se a coluna
+ *     `tokens_cache` viver em zero, o cache parou de funcionar — e essa é
+ *     a única forma de descobrir, porque tudo continua respondendo certo.
+ */
+export interface RespostaConversa {
+  texto: string;
+  consumo: {
+    entrada: number;
+    saida: number;
+    /** Tokens lidos do cache. Zero sempre significa cache quebrado. */
+    cacheLido: number;
+    cacheEscrito: number;
+  };
+}
+
+interface RespostaApiConversa extends RespostaApi {
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
+}
+
+export async function conversar(opcoes: {
+  /** Instrução fixa do assistente. */
+  instrucao: string;
+  /** O contexto grande e repetido — é este bloco que vai para o cache. */
+  contexto: string;
+  mensagens: Array<{ role: 'user' | 'assistant'; content: string }>;
+  modelo: string;
+  maxTokens: number;
+}): Promise<RespostaConversa> {
+  if (!env.ANTHROPIC_API_KEY) {
+    throw new ErroClaude('ANTHROPIC_API_KEY não configurada', 'config');
+  }
+
+  const controle = new AbortController();
+  const relogio = setTimeout(() => controle.abort(), env.ANTHROPIC_TIMEOUT_MS);
+
+  try {
+    const resp = await fetch(URL_MENSAGENS, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': env.ANTHROPIC_API_KEY,
+        'anthropic-version': VERSAO_API,
+      },
+      body: JSON.stringify({
+        model: opcoes.modelo,
+        max_tokens: opcoes.maxTokens,
+        // Mais baixa que a da análise. Aqui a resposta precisa ser
+        // reprodutível: a mesma pergunta sobre o mesmo plano, feita duas
+        // vezes, não deveria sugerir prioridades diferentes.
+        temperature: 0.2,
+        system: [
+          // A instrução vem primeiro e também entra no cache: ela é fixa
+          // para todos os clientes, então a parte dela do cache é
+          // compartilhada entre conversas.
+          { type: 'text', text: opcoes.instrucao },
+          {
+            type: 'text',
+            text: opcoes.contexto,
+            cache_control: { type: 'ephemeral' },
+          },
+        ],
+        messages: opcoes.mensagens,
+      }),
+      signal: controle.signal,
+    });
+
+    const corpo = (await resp.json().catch(() => null)) as RespostaApiConversa | null;
+
+    if (!resp.ok) {
+      throw new ErroClaude(
+        `Claude respondeu ${resp.status}: ${corpo?.error?.message ?? 'sem detalhe'}`,
+        'http',
+        { status: resp.status, tipo: corpo?.error?.type },
+      );
+    }
+
+    const texto = (corpo?.content ?? [])
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text ?? '')
+      .join('')
+      .trim();
+
+    if (!texto) throw new ErroClaude('Claude devolveu resposta vazia', 'formato');
+
+    const consumo = {
+      entrada: corpo?.usage?.input_tokens ?? 0,
+      saida: corpo?.usage?.output_tokens ?? 0,
+      cacheLido: corpo?.usage?.cache_read_input_tokens ?? 0,
+      cacheEscrito: corpo?.usage?.cache_creation_input_tokens ?? 0,
+    };
+
+    // Resposta cortada no meio é pior num chat que numa análise: o
+    // cliente lê a frase incompleta e acredita nela.
+    if (corpo?.stop_reason === 'max_tokens') {
+      logger.warn({ max: opcoes.maxTokens }, 'Resposta do chat cortada pelo limite de tokens');
+    }
+
+    logger.info(consumo, 'Resposta do chat do PDCA');
+
+    return { texto, consumo };
+  } catch (e) {
+    if (e instanceof ErroClaude) throw e;
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new ErroClaude(`Falha ao falar com o Claude: ${msg}`, 'rede');
+  } finally {
+    clearTimeout(relogio);
+  }
+}

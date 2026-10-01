@@ -105,6 +105,27 @@ const schema = z.object({
   // isso custa mais que a conta que ele evitaria.
   IA_LIMITE_DIARIO: z.coerce.number().int().min(1).max(100000).default(60),
 
+  // --- Chat do plano de ação ---------------------------------------
+  //
+  // Modelo próprio porque a tarefa é outra. O diagnóstico cruza quinze
+  // indicadores e escreve páginas; o chat explica uma ação em duas
+  // frases, com o cliente esperando na tela. Vale um modelo mais rápido,
+  // e vale poder trocar um sem mexer no outro.
+  PDCA_CHAT_MODEL: z.string().default('claude-sonnet-4-6'),
+
+  // Resposta de chat é curta. Teto baixo não corta a resposta: ele
+  // impede o modelo de escrever um relatório quando pediram uma frase —
+  // e, como o cliente espera, resposta longa também é resposta lenta.
+  PDCA_CHAT_MAX_TOKENS: z.coerce.number().int().min(256).max(8000).default(1200),
+
+  // Quantas perguntas uma MESMA empresa pode fazer em 24 horas.
+  //
+  // Separado do `IA_LIMITE_DIARIO` de propósito: aquele é o disjuntor
+  // global, e um único cliente conversando sem parar consumiria o teto do
+  // dia inteiro — o próximo prospect que preenchesse o formulário seria
+  // recusado por causa de uma conversa. Os dois valem em série.
+  PDCA_CHAT_LIMITE_24H: z.coerce.number().int().min(1).max(1000).default(30),
+
   // --- Quem escreve o relatório ------------------------------------
   //
   // `ia` chama o Claude: texto que cruza indicadores, lê o campo livre

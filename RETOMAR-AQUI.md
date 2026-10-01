@@ -102,24 +102,23 @@ nos assets. Encerrou uma classe inteira de bug "publicado mas invisível".
 **Apresentação para clientes** — 19 páginas, em
 `business-triage/apresentacao/`, gerada por `gerar.py` com WeasyPrint.
 
+**Chat sobre o plano de ação** — escrito em 01/10, **ainda não publicado**
+(falta colar o SQL 56 e subir API e front). Só leitura: explica o plano,
+não altera. Lê `planos_acao` e `acoes`, nunca o PDF — o PDF é um render
+congelado, e a ação concluída ontem continua "aberta" nele. Contexto cheio
+com cache de prompt, não RAG. Dois tetos em série: o global
+`IA_LIMITE_DIARIO` e o `PDCA_CHAT_LIMITE_24H` por empresa, para uma
+conversa não comer o orçamento do dia dos outros.
+
+Se `vw_pdca_chat_uso.tokens_cache` viver em zero, o cache de prompt
+quebrou e o chat passou a custar cerca de dez vezes mais — sem nenhum
+sintoma visível, porque tudo continua respondendo certo.
+
 **613 testes passando.**
 
 ---
 
 ## Em avaliação, sem decisão tomada
-
-**Chat sobre o PDCA do cliente.** Desenho acordado: ler as tabelas
-`planos_acao` e `acoes`, **não o PDF** — o plano estruturado é a fonte, o
-PDF é um render dele. Contexto cheio em vez de RAG (25–30 páginas cabem, e
-o modelo raciocina melhor sobre o plano inteiro que sobre trechos
-recuperados). Isolamento por tenant **no servidor**, nunca por instrução no
-prompt. Estimativa de 2 a 3 dias.
-
-**Pergunta aberta, que decide a arquitetura:** o chat deve poder *alterar* o
-plano — marcar ação concluída, mudar prazo — ou apenas responder sobre ele?
-Só responder é um endpoint de leitura; poder alterar exige confirmação,
-trilha de auditoria e tratamento de ambiguidade ("conclui a primeira" sobre
-qual lista?).
 
 **Marca branca para a agência de marketing.** Avaliada: tecnicamente é
 viável, o gargalo não é o código e sim a operação — segundo banco, segundo

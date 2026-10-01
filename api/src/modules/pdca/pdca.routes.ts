@@ -1,0 +1,422 @@
+/**
+ * O chat sobre o plano de ação.
+ *
+ * =====================================================================
+ * A EMPRESA VEM DO JWT. SEMPRE.
+ * =====================================================================
+ * `req.tenantId` é resolvido pelo `requireTenant` a partir do token e das
+ * associações do usuário. O corpo da requisição não tem — e não pode
+ * ganhar — campo de empresa.
+ *
+ * Isso não é zelo abstrato. O contexto que vai ao modelo é o plano de
+ * ação de uma empresa real, com dono, prazo e número. Um `tenant_id`
+ * aceito do cliente transformaria o chat na rota mais fácil de ler o
+ * plano do concorrente: bastaria trocar um uuid no DevTools.
+ *
+ * Por cima disso, a leitura do plano usa `req.supabase` — o client com o
+ * JWT do usuário — para que o RLS valha como segunda barreira. Se um dia
+ * o `requireTenant` tiver um defeito, o banco ainda recusa.
+ *
+ * `supabaseAdmin` aparece aqui em um único lugar, e é para GRAVAR a
+ * conversa: o SQL 56 não dá insert a `authenticated` de propósito, senão
+ * o front poderia fabricar uma mensagem de "assistente" que voltaria
+ * como contexto na pergunta seguinte.
+ *
+ * =====================================================================
+ * SÓ LEITURA
+ * =====================================================================
+ * Nenhuma rota aqui escreve em `planos_acao` ou `acoes`. Marcar ação
+ * concluída continua sendo na tela do plano, pelo botão da própria ação —
+ * onde o cliente vê exatamente o que está marcando. Ver a nota do SQL 56.
+ *
+ * =====================================================================
+ * DOIS TETOS, EM SÉRIE
+ * =====================================================================
+ * O global (`IA_LIMITE_DIARIO`), que protege a fatura contra defeito
+ * nosso, e o por empresa (`PDCA_CHAT_LIMITE_24H`), que impede uma
+ * conversa de comer o orçamento do dia e fazer o próximo prospect ser
+ * recusado.
+ *
+ * A ordem importa: o teto por empresa é checado ANTES do global. Ele é
+ * uma consulta local e barata, e recusar por ele não consome reserva do
+ * disjuntor — que é um contador, não uma medição.
+ */
+
+import { Router, type Request } from 'express';
+import { z } from 'zod';
+import { requireAuth, requireTenant } from '../../middlewares/auth.js';
+import { temRecurso } from '../../middlewares/recurso.js';
+import { validate } from '../../middlewares/validate.js';
+import { AppError, fromPostgrest } from '../../lib/errors.js';
+import { supabaseAdmin } from '../../lib/supabase.js';
+import { logger } from '../../lib/logger.js';
+import { env } from '../../config/env.js';
+import { conversar, ErroClaude } from '../../lib/claude.js';
+import {
+  OrcamentoEstourado,
+  registrarConsumo,
+  reservarChamada,
+} from '../diagnosticos/orcamento.js';
+import { montarContexto, type AcaoDoContexto } from './contexto.js';
+import {
+  corpoPerguntaSchema,
+  INSTRUCAO,
+  montarMensagens,
+  PerguntaInvalida,
+  validarPergunta,
+  type CorpoPergunta,
+  type MensagemGuardada,
+} from './conversa.js';
+
+export const pdcaRouter = Router();
+pdcaRouter.use(requireAuth, requireTenant);
+
+/**
+ * As tabelas da conversa ainda não estão no `database.types.ts` gerado.
+ * Mesmo remendo do resto do projeto, concentrado em duas funções.
+ */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type Tabela = { from: (t: string) => any; rpc?: any };
+const doUsuario = (req: { supabase: unknown }): Tabela => req.supabase as unknown as Tabela;
+const comoAdmin = (): Tabela => supabaseAdmin as unknown as Tabela;
+const rpcAdmin = () =>
+  supabaseAdmin as unknown as { rpc: (fn: string, args: Record<string, unknown>) => Promise<any> };
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+const CAMPOS_ACAO =
+  'titulo, detalhe, pilar, causa_raiz, responsavel_nome, prazo, status, concluida_em, ordem, ganho_dias';
+
+/**
+ * Qual plano o chat abre.
+ *
+ * Uma empresa no Intermediário tem dois planos ativos ao mesmo tempo —
+ * financeiro e comercial —, e misturar os dois num contexto só produziria
+ * respostas que cruzam ciclos que o consultor conduz separados, com
+ * reuniões e causas-raiz próprias.
+ *
+ * Então: um chat por plano. Sem `tipo` na query, abre o financeiro, que é
+ * o que todo assinante tem; cai no comercial quando é o único.
+ */
+async function acharPlano(req: Request, tipo?: string) {
+  const tenant = req.tenantId!;
+
+  const { data, error } = await doUsuario(req)
+    .from('planos_acao')
+    .select('id, titulo, ciclo, tipo, observacao, created_at')
+    .eq('tenant_id', tenant)
+    .eq('status', 'ativo');
+
+  if (error) throw fromPostgrest(error);
+
+  /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+  const planos = (data ?? []) as any[];
+  if (planos.length === 0) return null;
+
+  // O portão de recurso é por plano, não pelo router inteiro: quem está
+  // no Básico tem o PDCA financeiro e não deve ver o comercial, mesmo se
+  // um plano comercial existir no banco por um ciclo antigo.
+  const permitidos: string[] = [];
+  if (await temRecurso(tenant, 'pdca_financeiro')) permitidos.push('financeiro');
+  if (await temRecurso(tenant, 'pdca_comercial')) permitidos.push('comercial');
+
+  const visiveis = planos.filter((p) => permitidos.includes(String(p.tipo ?? 'financeiro')));
+  if (visiveis.length === 0) {
+    throw new AppError(
+      403,
+      'O plano desta empresa não inclui o acompanhamento com plano de ação. ' +
+        'Fale com seu consultor para liberar.',
+      'recurso_indisponivel',
+    );
+  }
+
+  if (tipo) {
+    const escolhido = visiveis.find((p) => String(p.tipo ?? 'financeiro') === tipo);
+    if (!escolhido) {
+      throw new AppError(404, 'Esta empresa não tem plano de ação ativo desse tipo.', 'sem_plano');
+    }
+    return escolhido;
+  }
+
+  return visiveis.find((p) => String(p.tipo ?? 'financeiro') === 'financeiro') ?? visiveis[0];
+}
+
+/** Quantas perguntas ainda cabem nas próximas 24 horas. */
+async function consultarTeto(tenantId: string) {
+  const { data, error } = await rpcAdmin().rpc('fn_pdca_cabe', {
+    p_tenant_id: tenantId,
+    p_limite: env.PDCA_CHAT_LIMITE_24H,
+  });
+
+  if (error) throw fromPostgrest(error);
+
+  const r = (data ?? {}) as { usadas?: number; limite?: number; permitido?: boolean };
+  return {
+    usadas: r.usadas ?? 0,
+    limite: r.limite ?? env.PDCA_CHAT_LIMITE_24H,
+    permitido: r.permitido !== false,
+  };
+}
+
+/* ==================================================================== */
+/* A conversa e o histórico                                              */
+/* ==================================================================== */
+
+const tipoQuery = z.object({
+  tipo: z.enum(['financeiro', 'comercial']).optional(),
+});
+
+pdcaRouter.get('/chat', async (req, res, next) => {
+  try {
+    const tenant = req.tenantId!;
+    const q = tipoQuery.safeParse(req.query);
+    const plano = await acharPlano(req, q.success ? q.data.tipo : undefined);
+
+    // Sem plano ativo não é erro: é o estado de quem assinou e ainda não
+    // teve a primeira reunião. A tela mostra a explicação, não uma falha.
+    if (!plano) {
+      return res.json({ data: { plano: null, mensagens: [], teto: await consultarTeto(tenant) } });
+    }
+
+    const { data: conversa, error: e1 } = await doUsuario(req)
+      .from('pdca_conversas')
+      .select('id')
+      .eq('tenant_id', tenant)
+      .eq('plano_id', plano.id)
+      .maybeSingle();
+
+    if (e1) throw fromPostgrest(e1);
+
+    /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+    let mensagens: any[] = [];
+
+    if (conversa?.id) {
+      const { data, error } = await doUsuario(req)
+        .from('pdca_mensagens')
+        .select('id, papel, texto, em')
+        .eq('conversa_id', conversa.id)
+        .order('em', { ascending: true })
+        // Cem mensagens é mais do que qualquer conversa real sobre um
+        // plano de dez ações. O corte existe para a tela não passar a
+        // carregar devagar num caso que ninguém previu.
+        .limit(100);
+
+      if (error) throw fromPostgrest(error);
+      mensagens = data ?? [];
+    }
+
+    res.json({
+      data: {
+        plano: {
+          id: plano.id,
+          titulo: plano.titulo,
+          ciclo: plano.ciclo,
+          tipo: plano.tipo ?? 'financeiro',
+        },
+        mensagens,
+        teto: await consultarTeto(tenant),
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ==================================================================== */
+/* Uma pergunta                                                          */
+/* ==================================================================== */
+
+// O schema mora em `conversa.ts`, módulo puro, para ser testável sem
+// subir a aplicação. O que ele garante é uma ausência: nenhum campo de
+// empresa, nenhum plano por id, nenhum texto livre que vá ao modelo.
+pdcaRouter.post('/chat/mensagem', validate(corpoPerguntaSchema), async (req, res, next) => {
+  const tenant = req.tenantId!;
+
+  try {
+    const corpo = req.body as CorpoPergunta;
+    const pergunta = validarPergunta(corpo.pergunta);
+
+    const plano = await acharPlano(req, corpo.tipo);
+    if (!plano) {
+      throw new AppError(
+        409,
+        'Esta empresa ainda não tem um plano de ação ativo. Fale com seu consultor.',
+        'sem_plano',
+      );
+    }
+
+    // Teto da empresa primeiro: é barato e recusar por ele não gasta
+    // reserva do disjuntor global, que é contador e não medição.
+    const teto = await consultarTeto(tenant);
+    if (!teto.permitido) {
+      throw new AppError(
+        429,
+        `Você já fez ${teto.usadas} perguntas nas últimas 24 horas, que é o limite. ` +
+          'Volte mais tarde, ou leve as dúvidas para a reunião com o consultor.',
+        'teto_chat',
+        teto,
+      );
+    }
+
+    /* ---------------------------------------------------------------- */
+    /* O contexto                                                        */
+    /* ---------------------------------------------------------------- */
+
+    const [empresaResp, acoesResp, conversaResp] = await Promise.all([
+      doUsuario(req).from('tenants').select('name').eq('id', tenant).maybeSingle(),
+      doUsuario(req)
+        .from('acoes')
+        .select(CAMPOS_ACAO)
+        .eq('plano_id', plano.id)
+        // Redundante com o `plano_id` — o plano já é de um tenant só — e
+        // mantido de propósito: se algum dia um plano for movido entre
+        // empresas por engano, esta linha impede que as ações dele vazem.
+        .eq('tenant_id', tenant),
+      doUsuario(req)
+        .from('pdca_conversas')
+        .select('id')
+        .eq('tenant_id', tenant)
+        .eq('plano_id', plano.id)
+        .maybeSingle(),
+    ]);
+
+    for (const r of [empresaResp, acoesResp, conversaResp]) {
+      if (r.error) throw fromPostgrest(r.error);
+    }
+
+    const { data: movimento } = await doUsuario(req)
+      .from('acao_eventos')
+      .select('em')
+      .eq('tenant_id', tenant)
+      .order('em', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const contexto = montarContexto({
+      empresa: String(empresaResp.data?.name ?? 'sua empresa'),
+      plano: {
+        titulo: String(plano.titulo),
+        ciclo: plano.ciclo,
+        tipo: plano.tipo ?? 'financeiro',
+        observacao: plano.observacao,
+        created_at: String(plano.created_at),
+      },
+      acoes: (acoesResp.data ?? []) as AcaoDoContexto[],
+      ultimoMovimento: movimento?.em ?? null,
+      hoje: new Date(),
+    });
+
+    /* ---------------------------------------------------------------- */
+    /* A conversa existente                                              */
+    /* ---------------------------------------------------------------- */
+
+    let conversaId: string | undefined = conversaResp.data?.id;
+
+    if (!conversaId) {
+      const { data, error } = await comoAdmin()
+        .from('pdca_conversas')
+        .insert({ tenant_id: tenant, plano_id: plano.id } as never)
+        .select('id')
+        .single();
+      if (error) throw fromPostgrest(error);
+      conversaId = String(data.id);
+    }
+
+    const { data: historico, error: e2 } = await doUsuario(req)
+      .from('pdca_mensagens')
+      .select('papel, texto')
+      .eq('conversa_id', conversaId)
+      .order('em', { ascending: true })
+      .limit(60);
+
+    if (e2) throw fromPostgrest(e2);
+
+    /* ---------------------------------------------------------------- */
+    /* A chamada                                                         */
+    /* ---------------------------------------------------------------- */
+
+    await reservarChamada();
+
+    const { texto, consumo } = await conversar({
+      instrucao: INSTRUCAO,
+      contexto,
+      mensagens: montarMensagens((historico ?? []) as MensagemGuardada[], pergunta),
+      modelo: env.PDCA_CHAT_MODEL,
+      maxTokens: env.PDCA_CHAT_MAX_TOKENS,
+    });
+
+    await registrarConsumo(consumo.entrada, consumo.saida);
+
+    /* ---------------------------------------------------------------- */
+    /* O registro                                                        */
+    /* ---------------------------------------------------------------- */
+    //
+    // As duas mensagens são gravadas DEPOIS da resposta, no mesmo
+    // insert. Gravar a pergunta antes pareceria mais natural — "registra
+    // o que o cliente mandou e depois processa" —, mas deixaria uma
+    // pergunta órfã no histórico sempre que o modelo falhasse. E
+    // pergunta órfã é justamente o par quebrado que `janelaDeHistorico`
+    // tem de sanear depois.
+    //
+    // O preço é perder o registro da pergunta que falhou. Aceitável: a
+    // falha fica no log, com causa, que é onde ela serve.
+
+    const { error: e3 } = await comoAdmin()
+      .from('pdca_mensagens')
+      .insert([
+        { conversa_id: conversaId, tenant_id: tenant, papel: 'cliente', texto: pergunta },
+        {
+          conversa_id: conversaId,
+          tenant_id: tenant,
+          papel: 'assistente',
+          texto,
+          tokens_entrada: consumo.entrada,
+          tokens_saida: consumo.saida,
+          tokens_cache: consumo.cacheLido,
+        },
+      ] as never);
+
+    // Falha ao gravar não derruba a resposta: o cliente já tem o que
+    // pediu, e tirar isso dele por causa do nosso histórico seria a
+    // troca errada. Fica no log, alto.
+    if (e3) {
+      logger.error({ erro: e3.message, tenant }, 'Não consegui gravar a conversa do PDCA');
+    }
+
+    res.json({
+      data: {
+        resposta: texto,
+        teto: { usadas: teto.usadas + 1, limite: teto.limite, permitido: teto.usadas + 1 < teto.limite },
+      },
+    });
+  } catch (e) {
+    if (e instanceof PerguntaInvalida) {
+      return next(new AppError(400, e.message, 'pergunta_invalida'));
+    }
+
+    if (e instanceof OrcamentoEstourado) {
+      return next(
+        new AppError(
+          503,
+          'O assistente está indisponível no momento. Tente de novo mais tarde.',
+          'ia_indisponivel',
+        ),
+      );
+    }
+
+    if (e instanceof ErroClaude) {
+      // O cliente não precisa saber se foi rede, formato ou chave. A
+      // causa fica no log; na tela, o que serve é saber que a culpa não é
+      // da pergunta dele.
+      logger.error({ etapa: e.etapa, detalhe: e.detalhe, tenant }, 'Chat do PDCA falhou');
+      return next(
+        new AppError(
+          502,
+          'Não consegui responder agora. Tente de novo em alguns instantes.',
+          'ia_falhou',
+        ),
+      );
+    }
+
+    next(e);
+  }
+});

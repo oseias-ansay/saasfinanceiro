@@ -69,7 +69,18 @@ with esperado(objeto, arquivo) as (values
 
   -- Relatórios de carteira
   ('vw_engajamento_clientes','?'), ('vw_retencao_coortes','?'),
-  ('vw_contratos_vencendo','?'), ('vw_despesas_por_categoria','?')
+  ('vw_contratos_vencendo','?'), ('vw_despesas_por_categoria','?'),
+
+  -- Dossiê de crédito
+  -- Ficaram de fora quando o 55 foi escrito, e o arquivo que existe para
+  -- pegar migração esquecida não pegaria a própria. Acrescentado em
+  -- 01/10/2026.
+  ('credito_dossies','55'), ('credito_documentos','55'),
+  ('vw_credito_carteira','55'),
+
+  -- Conversa sobre o plano de ação
+  ('pdca_conversas','56'), ('pdca_mensagens','56'),
+  ('vw_pdca_chat_uso','56')
 )
 select
   x.objeto                             as faltando,
