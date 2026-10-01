@@ -42,7 +42,7 @@ No `docker-compose.yml` do n8n, no serviço dele:
 ```yaml
 environment:
   - DRIVE_PASTA_RAIZ=1AbC...XyZ
-  - API_URL=https://api.businesstriage.com.br
+  - API_URL=https://api-financeiro.businesstriage.com.br
   - N8N_WEBHOOK_SECRET=<o mesmo do .env da API>
 ```
 
@@ -105,7 +105,7 @@ Para reprocessar, consulte a fila:
 
 ```bash
 curl -H "x-n8n-secret: $N8N_WEBHOOK_SECRET" \
-  https://api.businesstriage.com.br/api/v1/webhooks/n8n/credito/pendentes
+  https://api-financeiro.businesstriage.com.br/api/v1/webhooks/n8n/credito/pendentes
 ```
 
 São no máximo três tentativas por arquivo. O limite existe para um documento
