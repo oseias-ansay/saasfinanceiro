@@ -66,6 +66,27 @@ N8N_CREDITO_URL=https://n8n.seudominio.com.br/webhook/credito-documento
 
 Reconstrua a API. A partir daí cada documento enviado dispara a cópia.
 
+## Quatro armadilhas, aprendidas na primeira implantação
+
+**`$env` não funciona nas expressões.** O n8n bloqueia acesso a variáveis de
+ambiente dentro dos nós. O erro aparece como `access to env vars denied` — e,
+pior, no editor ele se disfarça de `[ERROR: not accessible via UI, please run
+node]`, que parece ser só limitação da pré-visualização. Só a execução revela.
+Por isso o id da pasta e as URLs estão como valor literal, e o segredo vem
+marcado para você preencher na importação.
+
+**O domínio da API é `api-financeiro.businesstriage.com.br`**, não
+`api.businesstriage.com.br`. O segundo não existe e devolve erro de conexão.
+
+**O nó `Guardar o id da pasta` roda uma vez para TODOS os itens.** Em
+`runOnceForEachItem` a referência a outro nó depende do pareamento de itens,
+que se perde ao atravessar o ramo de criação de pasta — e o documento chegava
+sem `url` ao nó de download.
+
+**A rota de retorno não tem `/pendentes`.** `/credito` grava o resultado;
+`/credito/pendentes` consulta a fila. Trocar uma pela outra faz o arquivo subir
+ao Drive e a plataforma nunca saber.
+
 ## Como a pasta por empresa funciona
 
 Na primeira vez que uma empresa envia algo, `drive_folder_id` chega nulo. O

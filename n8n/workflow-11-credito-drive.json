@@ -88,7 +88,7 @@
     {
       "parameters": {
         "resource": "folder",
-        "name": "={{ $('Webhook — documento novo').item.json.body.empresa }}{{ $('Webhook — documento novo').item.json.body.cnpj ? ' - ' + $('Webhook — documento novo').item.json.body.cnpj : '' }}",
+        "name": "={{ $json.empresa }}{{ $json.cnpj ? ' - ' + $json.cnpj : '' }}",
         "driveId": {
           "__rl": true,
           "mode": "list",
@@ -97,7 +97,7 @@
         "folderId": {
           "__rl": true,
           "mode": "id",
-          "value": "={{ $env.DRIVE_PASTA_RAIZ }}"
+          "value": "COLE-AQUI-O-ID-DA-PASTA-RAIZ"
         },
         "options": {}
       },
@@ -133,7 +133,7 @@
     },
     {
       "parameters": {
-        "name": "={{ $('Webhook — documento novo').item.json.body.item }} - {{ $('Webhook — documento novo').item.json.body.nome_arquivo }}",
+        "name": "={{ $json.item }} - {{ $json.nome_arquivo }}",
         "driveId": {
           "__rl": true,
           "mode": "list",
@@ -158,13 +158,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.API_URL }}/api/v1/webhooks/n8n/credito",
+        "url": "https://api-financeiro.businesstriage.com.br/api/v1/webhooks/n8n/credito",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "x-n8n-secret",
-              "value": "={{ $env.N8N_WEBHOOK_SECRET }}"
+              "value": "COLE-AQUI-O-N8N_WEBHOOK_SECRET"
             }
           ]
         },
@@ -184,8 +184,8 @@
     },
     {
       "parameters": {
-        "jsMode": "runOnceForEachItem",
-        "jsCode": "// De onde vier a pasta — do corpo, quando a empresa já tem uma,\n// ou do nó que acabou de criar — daqui para a frente o fluxo usa\n// um nome só. Sem isso, cada nó seguinte precisaria saber por\n// qual dos dois caminhos a execução veio.\nconst corpo = $('Webhook — documento novo').item.json.body;\nconst pastaId = corpo.drive_folder_id || $json.id;\nreturn { json: {\n  pastaId,\n  // Só devolve a URL quando a pasta é nova: a API grava uma vez\n  // e não precisa reescrever a cada arquivo.\n  pastaUrl: corpo.drive_folder_id ? null : `https://drive.google.com/drive/folders/${pastaId}`,\n} };"
+        "jsMode": "runOnceForAllItems",
+        "jsCode": "// Repassa adiante TUDO o que veio na entrada, mais o id da pasta.\n//\n// O `...p` nao e detalhe: sem ele os campos do documento — url,\n// documento_id, nome_arquivo — se perdiam quando o caminho passava\n// pelo no que CRIA a pasta, porque ali o item que chega e a pasta do\n// Drive, nao o documento. O no seguinte entao baixava `undefined`.\n//\n// Roda uma vez para TODOS os itens de proposito: em `runOnceForEachItem`\n// a referencia a outro no depende do pareamento, que se perde ao\n// atravessar o ramo da criacao.\nconst p = $('Webhook — documento novo').first().json.body;\n\nreturn $input.all().map((item) => {\n  const pastaId = p.drive_folder_id || item.json.id;\n  return { json: { ...p, pastaId,\n    pastaUrl: p.drive_folder_id ? null : `https://drive.google.com/drive/folders/${pastaId}`,\n  } };\n});"
       },
       "id": "guardar-o-id-da-pasta",
       "name": "Guardar o id da pasta",
@@ -199,13 +199,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.API_URL }}/api/v1/webhooks/n8n/credito",
+        "url": "https://api-financeiro.businesstriage.com.br/api/v1/webhooks/n8n/credito",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "x-n8n-secret",
-              "value": "={{ $env.N8N_WEBHOOK_SECRET }}"
+              "value": "COLE-AQUI-O-N8N_WEBHOOK_SECRET"
             }
           ]
         },
