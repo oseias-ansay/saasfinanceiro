@@ -172,7 +172,7 @@ export function detectarColunas(cabecalho: string[]): ColunasAcao {
  * Ano de dois dígitos também é recusado: `01/10/26` pode ser 2026 em
  * quase todo contexto, mas "quase" não serve para um prazo.
  */
-export function lerData(bruto: string): string | null {
+export function lerData(bruto: string, dataInicio?: string): string | null {
   const t = bruto.trim();
   if (!t) return null;
 
@@ -182,7 +182,55 @@ export function lerData(bruto: string): string | null {
   const br = /^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/.exec(t);
   if (br) return validar(Number(br[3]), Number(br[2]), Number(br[1]));
 
-  return null;
+  return lerRelativa(t, dataInicio);
+}
+
+/**
+ * A notação `D+N` do relatório, e só ela.
+ *
+ * =====================================================================
+ * ISTO NÃO É EXCEÇÃO À REGRA DE NUNCA INVENTAR
+ * =====================================================================
+ * `D+15` não é vago: é aritmética que o relatório pretende, e a única
+ * incógnita é qual é o D0. A regra continua valendo — o que mudou é que a
+ * incógnita passou a ser preenchida por uma pessoa, uma vez, de forma
+ * visível na tela, em vez de adivinhada por linha.
+ *
+ * Sem `dataInicio`, nada é calculado. E o texto original fica na tela ao
+ * lado da data, para a conferência não depender de confiança.
+ *
+ * O que continua recusado: "esta semana", "imediato", "Onda 2",
+ * "Out/2026". São períodos, não contagens — e traduzir período em dia é
+ * escolher por alguém.
+ *
+ * A célula pode trazer as duas coisas: a A4 do Auto Posto diz
+ * "Esta semana (literal [DF]); fechamento até D+30". Aí vale o `D+N`, que
+ * é a parte com número, e o texto inteiro aparece na revisão.
+ */
+function lerRelativa(texto: string, dataInicio?: string): string | null {
+  if (!dataInicio) return null;
+
+  const base = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dataInicio.trim());
+  if (!base) return null;
+
+  const t = texto.toLowerCase();
+  let dias: number | null = null;
+
+  // "Hoje" é o D0 do plano. Vem literal do diagnóstico e não tem outra
+  // leitura possível.
+  if (/^hoje\b/.test(t) || /^d\s*\+?\s*0\b/.test(t)) dias = 0;
+
+  const relativa = /\bd\s*\+\s*(\d{1,3})\b/.exec(t);
+  if (relativa) dias = Number(relativa[1]);
+
+  if (dias === null || !Number.isFinite(dias) || dias > 365) return null;
+
+  const d = new Date(
+    Date.UTC(Number(base[1]), Number(base[2]) - 1, Number(base[3])) + dias * 86_400_000,
+  );
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(
+    d.getUTCDate(),
+  ).padStart(2, '0')}`;
 }
 
 function validar(ano: number, mes: number, dia: number): string | null {
@@ -289,8 +337,14 @@ export function extrairContexto(markdown: string, limite = 8000): string | null 
   return (corte > limite * 0.5 ? bloco.slice(0, corte) : bloco.slice(0, limite)).trim();
 }
 
-/** A leitura completa. Pura: markdown entra, dados saem. */
-export function lerRelatorio(markdown: string): ResultadoLeitura {
+/**
+ * A leitura completa. Pura: markdown entra, dados saem.
+ *
+ * `dataInicio` (ISO) é o D0 do plano, escolhido pelo consultor na tela.
+ * Sem ele, as ações com prazo em `D+N` saem em branco — o que é o
+ * comportamento certo, não uma falha.
+ */
+export function lerRelatorio(markdown: string, dataInicio?: string): ResultadoLeitura {
   const avisos: string[] = [];
 
   if (!markdown || markdown.trim().length === 0) {
@@ -324,7 +378,7 @@ export function lerRelatorio(markdown: string): ResultadoLeitura {
     if (!titulo) continue;
 
     const prazoOriginal = pegar(l, c.prazo);
-    const prazo = prazoOriginal ? lerData(prazoOriginal) : null;
+    const prazo = prazoOriginal ? lerData(prazoOriginal, dataInicio) : null;
     const responsavel = pegar(l, c.responsavel);
 
     const faltando: AcaoExtraida['faltando'] = [];

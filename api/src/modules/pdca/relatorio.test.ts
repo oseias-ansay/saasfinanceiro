@@ -171,6 +171,38 @@ describe('a leitura de data', () => {
     assert.equal(lerData('01/10/26'), null);
   });
 
+  /**
+   * `D+15` não é vago: é aritmética que o relatório pretende, e a única
+   * incógnita é o D0 — que vem de uma pessoa, uma vez, visível na tela.
+   * O relatório do Auto Posto usa essa notação nas dez ações.
+   */
+  it('resolve D+N a partir da data de início', () => {
+    assert.equal(lerData('D+7 [definido neste plano]', '2026-10-02'), '2026-10-09');
+    assert.equal(lerData('D+30', '2026-10-02'), '2026-11-01');
+    assert.equal(lerData('**Hoje** (literal [DF])'.replace(/\*/g, ''), '2026-10-02'), '2026-10-02');
+  });
+
+  /** A4 do Auto Posto: "Esta semana (literal); fechamento até D+30". */
+  it('usa o D+N quando a célula mistura período e contagem', () => {
+    assert.equal(
+      lerData('Esta semana (literal [DF]); fechamento até D+30 [definido]', '2026-10-02'),
+      '2026-11-01',
+    );
+  });
+
+  it('sem data de início, D+N continua em branco', () => {
+    assert.equal(lerData('D+7'), null);
+    assert.equal(lerData('D+7', 'não é data'), null);
+  });
+
+  /** Período continua recusado: traduzir período em dia é escolher por
+   *  alguém, e o relatório não escolheu. */
+  it('não inventa dia para período, mesmo com data de início', () => {
+    for (const v of ['esta semana', 'imediato', 'Onda 2', 'Out/2026', 'próximo mês']) {
+      assert.equal(lerData(v, '2026-10-02'), null, `deveria recusar: ${v}`);
+    }
+  });
+
   it('recusa data que não existe', () => {
     assert.equal(lerData('31/02/2026'), null);
     assert.equal(lerData('32/01/2026'), null);

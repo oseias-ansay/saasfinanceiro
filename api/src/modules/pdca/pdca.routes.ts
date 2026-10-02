@@ -179,12 +179,16 @@ const previaSchema = z.object({
   // 60 mil caracteres. O corte existe só para um arquivo trocado por
   // engano não virar processamento inútil.
   markdown: z.string().min(1, 'Cole o conteúdo do relatório.').max(400_000),
+  // O D0 do plano, para resolver os prazos escritos como `D+15`. Vem da
+  // tela, escolhido por uma pessoa — nunca do relógio do servidor, que
+  // faria a mesma importação dar datas diferentes conforme a hora.
+  data_inicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 pdcaRouter.post('/plano/previa', validate(previaSchema), async (req, res, next) => {
   try {
-    const { markdown } = req.body as z.infer<typeof previaSchema>;
-    res.json({ data: lerRelatorio(markdown) });
+    const { markdown, data_inicio } = req.body as z.infer<typeof previaSchema>;
+    res.json({ data: lerRelatorio(markdown, data_inicio) });
   } catch (e) {
     next(e);
   }
