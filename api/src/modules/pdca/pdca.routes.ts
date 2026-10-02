@@ -223,23 +223,51 @@ const importarSchema = z.object({
 
 pdcaRouter.post('/plano/importar', validate(importarSchema), async (req, res, next) => {
   try {
-    const tenant = req.tenantId!;
+    // Sem `req.tenantId` aqui, de propósito: a empresa vem do plano, logo
+    // abaixo. Ver a nota sobre o seletor do topo.
     const corpo = req.body as z.infer<typeof importarSchema>;
     const db = doUsuario(req);
 
-    // O plano precisa ser DESTA empresa. Sem esta conferência, um
-    // `plano_id` de outro tenant faria as ações nascerem no plano do
-    // concorrente — e o RLS de `acoes` não pegaria, porque o tenant_id
-    // gravado seria o certo.
+    /* ----------------------------------------------------------------
+     * A empresa sai do PLANO, não do seletor do topo
+     * ----------------------------------------------------------------
+     * A primeira versão exigia `plano.tenant_id === req.tenantId`, e isso
+     * quebrou em uso: o consultor abre o editor de uma empresa da carteira
+     * pela URL, enquanto o seletor do cabeçalho continua na empresa dele.
+     * O plano era do Auto Posto, o tenant ativo era outro, e a rota
+     * respondia "plano não encontrado" sobre um plano que estava na tela.
+     *
+     * Tirar o filtro NÃO afrouxa a segurança, e vale explicar por quê:
+     *
+     *   · a leitura usa `req.supabase`, com o JWT do usuário — o RLS de
+     *     `planos_acao` só devolve plano de empresa onde ele é membro ou
+     *     onde ele é staff da plataforma;
+     *   · o `tenant_id` dos inserts passa a vir do PLANO, lido do banco,
+     *     nunca do corpo da requisição;
+     *   · o insert em `acoes` tem policy própria exigindo
+     *     `is_platform_staff()`. Quem não é staff não cria ação nenhuma,
+     *     em empresa nenhuma.
+     *
+     * Ou seja: o cliente só enxerga o plano dele, e mesmo assim não
+     * consegue importar. Quem importa é o consultor, na empresa que ele
+     * já tem direito de ver.
+     */
     const { data: plano, error: e1 } = await db
       .from('planos_acao')
       .select('id, tenant_id')
       .eq('id', corpo.plano_id)
-      .eq('tenant_id', tenant)
       .maybeSingle();
 
     if (e1) throw fromPostgrest(e1);
-    if (!plano) throw new AppError(404, 'Plano não encontrado nesta empresa.', 'sem_plano');
+    if (!plano) {
+      throw new AppError(
+        404,
+        'Plano não encontrado, ou você não tem acesso a esta empresa.',
+        'sem_plano',
+      );
+    }
+
+    const empresaDoPlano = String(plano.tenant_id);
 
     // A ordem segue a da tela, que segue a do relatório — os níveis da
     // Matriz GUT vêm ordenados, e perder isso embaralharia a prioridade.
@@ -248,7 +276,7 @@ pdcaRouter.post('/plano/importar', validate(importarSchema), async (req, res, ne
       .insert(
         corpo.acoes.map((a, i) => ({
           plano_id: corpo.plano_id,
-          tenant_id: tenant,
+          tenant_id: empresaDoPlano,
           titulo: a.titulo,
           detalhe: a.detalhe ?? null,
           pilar: a.pilar ?? null,
@@ -268,12 +296,14 @@ pdcaRouter.post('/plano/importar', validate(importarSchema), async (req, res, ne
       const { error } = await db
         .from('planos_acao')
         .update({ contexto: corpo.contexto?.trim() || null } as never)
-        .eq('id', corpo.plano_id)
-        .eq('tenant_id', tenant);
+        .eq('id', corpo.plano_id);
       if (error) throw fromPostgrest(error);
     }
 
-    logger.info({ tenant, acoes: criadas?.length ?? 0 }, 'Plano importado do relatório');
+    logger.info(
+      { tenant: empresaDoPlano, acoes: criadas?.length ?? 0 },
+      'Plano importado do relatório',
+    );
     res.json({ data: { criadas: criadas?.length ?? 0 } });
   } catch (e) {
     next(e);

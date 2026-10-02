@@ -423,6 +423,27 @@ export function lerRelatorio(markdown: string, dataInicio?: string): ResultadoLe
     avisos.push('Achei a tabela, mas nenhuma linha tinha o campo "O quê?" preenchido.');
   }
 
+  /**
+   * Linha descartada precisa aparecer.
+   *
+   * Sem este aviso, uma tabela de dez ações que vira cinco é
+   * indistinguível de uma tabela de cinco — e o consultor publica metade
+   * do plano sem saber. Aconteceu em 02/10/2026 com o relatório do Auto
+   * Posto: a tela disse "5 ações encontradas" e ninguém tinha como
+   * desconfiar do número.
+   *
+   * A causa costuma ser a linha ter perdido a quebra no caminho, ou um
+   * `|` dentro de uma célula partindo a linha em duas.
+   */
+  const descartadas = tabela.linhas.length - acoes.length;
+  if (descartadas > 0) {
+    avisos.push(
+      `A tabela tinha ${tabela.linhas.length} linhas e ${acoes.length} viraram ação — ` +
+        `${descartadas} ${descartadas === 1 ? 'foi descartada' : 'foram descartadas'} por estar ` +
+        'sem o campo "O quê?". Confira se nenhuma ação ficou de fora.',
+    );
+  }
+
   const semPrazo = acoes.filter((a) => a.faltando.includes('prazo')).length;
   if (semPrazo > 0) {
     avisos.push(

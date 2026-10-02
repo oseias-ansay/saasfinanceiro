@@ -281,6 +281,32 @@ describe('a leitura completa', () => {
     assert.deepEqual(r.acoes[0]?.faltando, ['responsavel_nome']);
   });
 
+  /**
+   * Caso real: a tela disse "5 ações encontradas" sobre um relatório de
+   * dez, e ninguém tinha como desconfiar do número. Linha descartada em
+   * silêncio faz o consultor publicar metade do plano sem saber.
+   */
+  it('avisa quantas linhas foram descartadas', () => {
+    // A linha toda vazia nem chega aqui: `extrairTabelas` a descarta como
+    // separador visual. O aviso conta as que tinham algum dado e ainda
+    // assim não viraram ação — que são as que o consultor precisa olhar.
+    const r = lerRelatorio(`
+| O quê? | Quem? | Quando? |
+|---|---|---|
+| Fazer algo | Maria | 10/10/2026 |
+| | Pedro | 11/10/2026 |`);
+    assert.equal(r.acoes.length, 1);
+    assert.ok(r.avisos.some((a) => /2 linhas e 1 viraram ação/.test(a)), r.avisos.join(' | '));
+  });
+
+  it('não avisa descarte quando tudo virou ação', () => {
+    const r = lerRelatorio(`
+| O quê? | Quem? | Quando? |
+|---|---|---|
+| Fazer algo | Maria | 10/10/2026 |`);
+    assert.ok(!r.avisos.some((a) => /descartada/.test(a)));
+  });
+
   it('ignora linha sem o campo "O quê?"', () => {
     const r = lerRelatorio(`
 | O quê? | Quem? | Quando? |
