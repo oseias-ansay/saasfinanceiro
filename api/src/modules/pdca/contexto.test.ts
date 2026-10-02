@@ -207,6 +207,43 @@ describe('o texto do contexto', () => {
     assert.match(t, /ainda não tem ações cadastradas/);
   });
 
+  /**
+   * O diagnóstico do relatório é o que responde "por que isso é
+   * prioridade?". Precisa vir antes das ações: depois delas, o mesmo
+   * texto é lido como apêndice.
+   */
+  it('põe o diagnóstico antes das ações', () => {
+    const t = montarContexto(
+      dados({
+        plano: {
+          titulo: '1º ciclo',
+          created_at: '2026-09-01T10:00:00Z',
+          contexto: 'O ciclo financeiro de 47 dias é o gargalo: o estoque responde por 31 deles.',
+        },
+      }),
+    );
+    assert.match(t, /DIAGNÓSTICO QUE ORIGINOU ESTE PLANO/);
+    assert.match(t, /ciclo financeiro de 47 dias/);
+    assert.ok(
+      t.indexOf('DIAGNÓSTICO QUE ORIGINOU') < t.indexOf('## AS AÇÕES'),
+      'o diagnóstico tem de vir antes das ações',
+    );
+  });
+
+  /**
+   * Plano sem contexto é o caso normal — todos os que já existem. A seção
+   * não pode aparecer vazia, nem com um "não informado": cabeçalho sem
+   * conteúdo gasta tokens em toda pergunta e sugere ao modelo que havia
+   * um diagnóstico que ele não recebeu.
+   */
+  it('omite a seção inteira quando não há diagnóstico', () => {
+    assert.doesNotMatch(montarContexto(dados()), /DIAGNÓSTICO QUE ORIGINOU/);
+    assert.doesNotMatch(
+      montarContexto(dados({ plano: { titulo: 'x', created_at: '2026-09-01T10:00:00Z', contexto: '   ' } })),
+      /DIAGNÓSTICO QUE ORIGINOU/,
+    );
+  });
+
   it('não inventa seção de alavanca quando não há ganho em dias', () => {
     assert.doesNotMatch(montarContexto(dados()), /Alavanca de ciclo/);
     assert.match(montarContexto(dados({ acoes: [acao({ ganho_dias: 4 })] })), /reduz 4 dia/);

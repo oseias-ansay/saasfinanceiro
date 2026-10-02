@@ -50,7 +50,14 @@ publicado, migração esquecida, tela quebrando para o cliente.
 
 Depois de **toda** publicação, rode `supabase/sql/52-conferir-banco.sql`: ele
 compara o que o código referencia com o que o banco tem e lista o que falta.
-Vazio significa banco em dia.
+São **duas consultas** no arquivo — tabelas e views na primeira, colunas
+acrescentadas depois na segunda. Rode as duas, separadas. Vazio nas duas
+significa banco em dia.
+
+**Ao acrescentar coluna a uma tabela que já existe, registre-a na segunda
+parte do 52.** A primeira parte não a enxerga: a tabela está lá, e a consulta
+do código falha inteira por causa de uma coluna. Foi assim com o `tx_id` do
+extrato.
 
 Arquivos longos truncam no editor do Supabase. Divida em partes se der
 `syntax error at end of input`.

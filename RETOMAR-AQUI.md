@@ -114,6 +114,18 @@ Se `vw_pdca_chat_uso.tokens_cache` viver em zero, o cache de prompt
 quebrou e o chat passou a custar cerca de dez vezes mais — sem nenhum
 sintoma visível, porque tudo continua respondendo certo.
 
+O **SQL 57** acrescenta `planos_acao.contexto`: o diagnóstico do relatório,
+colado pelo consultor no editor do plano. Sem ele o chat conhece as ações e
+não o raciocínio que as ordenou. **O 57 é obrigatório junto do 56** — a rota
+pede a coluna no `select`, e sem ela a tela do plano quebra inteira.
+
+Para o relatório de PDCA entrar no chat, o caminho é **cadastrar o plano na
+plataforma** e colar a síntese no campo de diagnóstico. O PDF não é lido, e
+não por falta de ferramenta: o relatório do Auto Posto Esperança, medido em
+02/10, tem zero fontes e nenhuma camada de texto — 18 páginas desenhadas como
+vetor, `pdftotext` extrai 18 bytes. OCR seria o único caminho, e OCR de
+relatório financeiro erra onde dói.
+
 **613 testes passando.**
 
 ---

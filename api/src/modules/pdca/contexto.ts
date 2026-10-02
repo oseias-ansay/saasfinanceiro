@@ -63,6 +63,14 @@ export interface PlanoDoContexto {
   /** 'financeiro' ou 'comercial'. */
   tipo?: string | null;
   observacao?: string | null;
+  /**
+   * Diagnóstico e causa-raiz do relatório, colado pelo consultor (SQL 57).
+   *
+   * É o que responde "por que isso é prioridade?". Sem ele o assistente
+   * conhece as ações e não conhece o raciocínio que as ordenou — e essa
+   * é a primeira pergunta que o cliente faz.
+   */
+  contexto?: string | null;
   /** ISO completo. */
   created_at: string;
 }
@@ -215,6 +223,23 @@ export function montarContexto(dados: DadosDoContexto): string {
       `- As alavancas de ciclo ainda abertas somam ${r.ganhoDiasEmAberto} dia(s) ` +
         'de redução do ciclo financeiro, se concluídas.',
     );
+  }
+
+  /**
+   * O diagnóstico vem ANTES das ações.
+   *
+   * Ordem deliberada: é a leitura dos números que explica por que a lista
+   * é essa e nessa sequência. Depois das ações, o mesmo texto seria lido
+   * como apêndice — e o modelo responderia "por que isso é prioridade?"
+   * com a ação em si, que é o que o cliente já tinha na tela.
+   */
+  if (vazio(dados.plano.contexto)) {
+    l.push('');
+    l.push('## DIAGNÓSTICO QUE ORIGINOU ESTE PLANO');
+    l.push('');
+    l.push('Escrito pelo consultor que conduziu a análise:');
+    l.push('');
+    l.push(String(dados.plano.contexto).trim());
   }
 
   l.push('');

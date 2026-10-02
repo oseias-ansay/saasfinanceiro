@@ -102,7 +102,7 @@ async function acharPlano(req: Request, tipo?: string) {
 
   const { data, error } = await doUsuario(req)
     .from('planos_acao')
-    .select('id, titulo, ciclo, tipo, observacao, created_at')
+    .select('id, titulo, ciclo, tipo, observacao, contexto, created_at')
     .eq('tenant_id', tenant)
     .eq('status', 'ativo');
 
@@ -298,6 +298,7 @@ pdcaRouter.post('/chat/mensagem', validate(corpoPerguntaSchema), async (req, res
         ciclo: plano.ciclo,
         tipo: plano.tipo ?? 'financeiro',
         observacao: plano.observacao,
+        contexto: plano.contexto,
         created_at: String(plano.created_at),
       },
       acoes: (acoesResp.data ?? []) as AcaoDoContexto[],

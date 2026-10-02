@@ -98,6 +98,56 @@ order by x.arquivo, x.objeto;
 -- Aplique na ordem do número e rode esta consulta de novo.
 
 
+-- =====================================================================
+-- SEGUNDA PARTE · COLUNAS QUE O CÓDIGO PEDE
+-- =====================================================================
+-- Rode SEPARADO da consulta acima.
+--
+-- A primeira parte confere tabelas e views. Não pega coluna faltando —
+-- e a quebra que originou este arquivo foi exatamente uma coluna: o
+-- `tx_id` do extrato. A tabela existia, a consulta falhava.
+--
+-- Aqui só entram as colunas acrescentadas DEPOIS da criação da tabela,
+-- por um arquivo numerado próprio. Coluna que nasceu junto com a tabela
+-- já está coberta pela primeira parte: se a tabela existe, ela existe.
+--
+-- Acrescentado em 02/10/2026, junto do contexto do plano.
+-- =====================================================================
+
+with esperado(tabela, coluna, arquivo) as (values
+  ('hora_produtiva_config', 'folha_mensal', '53'),
+  ('acoes',                 'ganho_dias',   '47'),
+  ('planos_acao',           'tipo',         '23'),
+  -- Sem esta, a rota do chat do PDCA falha inteira: o `select` pede a
+  -- coluna, o Postgres recusa a consulta, e a tela do plano quebra junto.
+  ('planos_acao',           'contexto',     '57'),
+  ('transactions',          'paid_date',    '01'),
+  ('tenants',               'recursos_extras', '23'),
+  ('credito_documentos',    'drive_file_id', '55'),
+  ('credito_documentos',    'sync_tentativas', '55'),
+  ('pdca_mensagens',        'tokens_cache', '56')
+)
+select
+  x.tabela || '.' || x.coluna     as faltando,
+  'rode o arquivo ' || x.arquivo  as solucao
+from esperado x
+where exists (
+  -- Só reclama de coluna cuja TABELA existe. Tabela ausente é problema da
+  -- primeira parte, e repetir aqui daria duas linhas para um erro só.
+  select 1 from information_schema.tables t
+   where t.table_schema = 'public' and t.table_name = x.tabela
+)
+and not exists (
+  select 1 from information_schema.columns c
+   where c.table_schema = 'public'
+     and c.table_name = x.tabela
+     and c.column_name = x.coluna
+)
+order by x.arquivo, x.tabela, x.coluna;
+
+-- Vazio aqui também = banco em dia.
+
+
 -- ---------------------------------------------------------------------
 -- DEPOIS DE APLICAR QUALQUER ARQUIVO
 -- ---------------------------------------------------------------------
