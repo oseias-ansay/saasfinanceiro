@@ -105,6 +105,13 @@ declaram isso porque o contador do cliente chega a outro número.
 **O diagnóstico é gerado por IA com teto diário** (`IA_LIMITE_DIARIO`). Cada
 chamada custa dinheiro real.
 
+**O plano automático espelha o diagnóstico mais recente, e plano de
+consultor sempre vence.** Uma regra, duas portas: o marco zero cria o plano
+de entrada a partir de `diagnosticos.analise` (que já está pago e guardado —
+não chama IA), e a apuração mensal substitui pelo plano dos lançamentos
+reais. Se existe plano com `origem = 'consultor'`, nenhuma das duas faz nada.
+É o que faz o upgrade funcionar sem migração.
+
 **Importação lê o markdown, nunca o PDF.** O relatório de PDCA nasce como
 `relatorio.md` e só depois é renderizado. Importar o PDF é analisar a própria
 saída depois de descartar a estrutura — e o PDF impresso perde até a camada de

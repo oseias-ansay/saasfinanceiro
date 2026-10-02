@@ -8,6 +8,7 @@
 import { Router } from 'express';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
+import { gerarPlanoDoDiagnostico } from '../pdca/automatico.service.js';
 import type { NextFunction, Request, Response } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
 import { validate } from '../../middlewares/validate.js';
@@ -574,7 +575,31 @@ adminRouter.post('/tenants/:id/marco-zero', validate(marcoZeroSchema), async (re
       .single();
 
     if (error) throw fromPostgrest(error);
-    res.status(201).json({ data });
+
+    /* ----------------------------------------------------------------
+     * O plano de entrada
+     * ----------------------------------------------------------------
+     * O marco zero é o instante em que o prospect vira cliente — e é o
+     * primeiro acesso dele à plataforma. Sem isto ele encontra tela
+     * vazia e espera um mês pela primeira apuração.
+     *
+     * Não custa IA: o `planoDeAcao` já está em `diagnosticos.analise`,
+     * gerado e pago quando o formulário foi enviado.
+     *
+     * Fora do caminho crítico, como na apuração: `gerarPlanoDoDiagnostico`
+     * nunca lança, e o marco zero é o registro que não pode falhar.
+     */
+    const plano = await gerarPlanoDoDiagnostico({
+      tenantId,
+      diagnosticoId: String(diag.id),
+    });
+
+    res.status(201).json({
+      data,
+      plano_de_entrada: plano.criado
+        ? { criado: true, acoes: plano.acoes }
+        : { criado: false, motivo: plano.motivo },
+    });
   } catch (e) {
     next(e);
   }

@@ -19,6 +19,7 @@ import {
   MAX_ACOES_AUTOMATICAS,
   PRAZO_POR_PRIORIDADE,
   RESPONSAVEL_A_DEFINIR,
+  lerAnaliseGuardada,
   tituloDoPlano,
   type AcaoDaAnalise,
   type AnaliseParaPlano,
@@ -194,5 +195,70 @@ describe('o título do plano', () => {
 
   it('não quebra com competência fora do formato', () => {
     assert.match(tituloDoPlano('2026-99'), /Plano de ação/);
+  });
+});
+
+/**
+ * `diagnosticos.analise` é um jsonb sem garantia de formato: foi gravado
+ * por versões anteriores do schema, pode ter vindo do financeiro ou do
+ * comercial, e um registro de meses atrás pode não ter o campo que o
+ * código de hoje espera.
+ *
+ * Esta leitura roda no marco zero — o instante em que o prospect vira
+ * cliente. É o pior momento possível para quebrar, e o mais provável de
+ * encontrar um registro antigo.
+ */
+describe('a leitura da análise guardada', () => {
+  const bom = {
+    resumoExecutivo: 'A empresa lucra, mas o lucro não vira reserva.',
+    gargalosIdentificados: ['Caixa cobre 2,91 dias'],
+    planoDeAcao: [
+      { prioridade: 'Alta', pilar: 'Liquidez', acaoRecomendada: 'Abrir conta de reserva.' },
+    ],
+  };
+
+  it('lê o formato esperado', () => {
+    const r = lerAnaliseGuardada(bom);
+    assert.equal(r?.planoDeAcao.length, 1);
+    assert.equal(r?.planoDeAcao[0]?.prioridade, 'Alta');
+    assert.deepEqual(r?.gargalos, ['Caixa cobre 2,91 dias']);
+  });
+
+  /** O schema comercial chama de `gargalosCriticos`. Sem este fallback, o
+   *  plano comercial entraria sem gargalo nenhum no contexto do chat. */
+  it('aceita gargalosCriticos do schema comercial', () => {
+    const r = lerAnaliseGuardada({ ...bom, gargalosIdentificados: undefined, gargalosCriticos: ['Funil sem etapa'] });
+    assert.deepEqual(r?.gargalos, ['Funil sem etapa']);
+  });
+
+  it('devolve nulo quando não há plano aproveitável', () => {
+    for (const v of [null, undefined, 'texto', 42, {}, { planoDeAcao: [] }, { planoDeAcao: 'x' }]) {
+      assert.equal(lerAnaliseGuardada(v), null, `deveria recusar: ${JSON.stringify(v)}`);
+    }
+  });
+
+  it('descarta item sem texto de ação em vez de deixar título vazio', () => {
+    const r = lerAnaliseGuardada({
+      planoDeAcao: [
+        { prioridade: 'Alta', pilar: 'x', acaoRecomendada: '  ' },
+        { prioridade: 'Alta', pilar: 'x', acaoRecomendada: 'ab' },
+        null,
+        { prioridade: 'Alta', pilar: 'x', acaoRecomendada: 'Uma ação de verdade.' },
+      ],
+    });
+    assert.equal(r?.planoDeAcao.length, 1);
+  });
+
+  it('prioridade desconhecida vira Média, não quebra', () => {
+    const r = lerAnaliseGuardada({
+      planoDeAcao: [{ prioridade: 'Urgente', pilar: 'x', acaoRecomendada: 'Fazer alguma coisa.' }],
+    });
+    assert.equal(r?.planoDeAcao[0]?.prioridade, 'Média');
+  });
+
+  it('resumo e gargalos ausentes não impedem a leitura', () => {
+    const r = lerAnaliseGuardada({ planoDeAcao: bom.planoDeAcao });
+    assert.equal(r?.resumoExecutivo, '');
+    assert.deepEqual(r?.gargalos, []);
   });
 });

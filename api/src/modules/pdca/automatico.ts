@@ -188,6 +188,60 @@ export function gerarContexto(
   return (corte > limite * 0.5 ? texto.slice(0, corte) : texto.slice(0, limite)).trim();
 }
 
+/**
+ * Lê a análise guardada em `diagnosticos.analise`.
+ *
+ * É um `jsonb` sem garantia de formato: foi gravado por uma versão
+ * anterior do schema, podendo ter vindo do financeiro ou do comercial, e
+ * um diagnóstico de meses atrás pode não ter o campo que o código de hoje
+ * espera. Ler isso direto, com `as`, é pedir para a rotina quebrar num
+ * registro antigo — e ela roda no marco zero, que é o pior momento para
+ * falhar.
+ *
+ * Devolve `null` quando não há plano aproveitável, em vez de um objeto
+ * pela metade. Quem chama trata como "não gerou", que é a verdade.
+ */
+export function lerAnaliseGuardada(bruto: unknown): AnaliseParaPlano | null {
+  if (!bruto || typeof bruto !== 'object') return null;
+
+  const a = bruto as Record<string, unknown>;
+  const plano = a.planoDeAcao;
+
+  if (!Array.isArray(plano) || plano.length === 0) return null;
+
+  const acoes: AcaoDaAnalise[] = [];
+  for (const item of plano) {
+    if (!item || typeof item !== 'object') continue;
+    const i = item as Record<string, unknown>;
+    const texto = typeof i.acaoRecomendada === 'string' ? i.acaoRecomendada.trim() : '';
+    // Ação sem texto não é ação. Entrar com título vazio quebraria o
+    // check de tamanho mínimo do banco depois de o plano já existir.
+    if (texto.length < 3) continue;
+
+    acoes.push({
+      prioridade: (i.prioridade === 'Alta' || i.prioridade === 'Baixa'
+        ? i.prioridade
+        : 'Média') as Prioridade,
+      pilar: typeof i.pilar === 'string' ? i.pilar : '',
+      acaoRecomendada: texto,
+    });
+  }
+
+  if (acoes.length === 0) return null;
+
+  // O schema financeiro e o comercial nomeiam os gargalos de formas
+  // diferentes. Ler os dois evita um plano comercial entrar sem gargalo
+  // nenhum no contexto do chat.
+  const gargalos = [a.gargalosIdentificados, a.gargalosCriticos]
+    .find(Array.isArray) as unknown[] | undefined;
+
+  return {
+    resumoExecutivo: typeof a.resumoExecutivo === 'string' ? a.resumoExecutivo : '',
+    planoDeAcao: acoes,
+    gargalos: (gargalos ?? []).filter((g): g is string => typeof g === 'string'),
+  };
+}
+
 /** Título do plano, legível na lista do consultor e no card do cliente. */
 export function tituloDoPlano(competencia: string): string {
   const [ano, mes] = competencia.split('-');
