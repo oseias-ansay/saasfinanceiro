@@ -30,6 +30,7 @@ import { fechamentoRouter } from './modules/mensal/fechamento.routes.js';
 import { crmRouter } from './modules/crm/crm.routes.js';
 import { creditoRouter } from './modules/credito/credito.routes.js';
 import { pdcaRouter } from './modules/pdca/pdca.routes.js';
+import { assistenteRouter } from './modules/assistente/assistente.routes.js';
 import { creditoWebhookRouter } from './modules/credito/credito.webhook.routes.js';
 
 export function createApp() {
@@ -69,6 +70,7 @@ export function createApp() {
   app.use('/api/v1/crm', crmRouter);
   app.use('/api/v1/credito', creditoRouter);
   app.use('/api/v1/pdca', pdcaRouter);
+  app.use('/api/v1/assistente', assistenteRouter);
   // Antes do n8nRouter de propósito: montado depois, o prefixo mais curto
   // casaria primeiro e a requisição passaria por dois rate limits e duas
   // verificações de segredo antes de chegar aqui.

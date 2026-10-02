@@ -112,6 +112,22 @@ não chama IA), e a apuração mensal substitui pelo plano dos lançamentos
 reais. Se existe plano com `origem = 'consultor'`, nenhuma das duas faz nada.
 É o que faz o upgrade funcionar sem migração.
 
+**O assistente não recebe dados; recebe o direito de perguntar.** Nenhuma
+ferramenta de `modules/assistente/ferramentas.ts` tem campo de empresa — o
+`tenant_id` é injetado pelo executor, a partir do JWT. Há teste que varre o
+catálogo procurando `tenant`, `empresa`, `cliente_id`: é a única barreira
+automática entre o assistente e o dado do concorrente, e ela não depende de o
+modelo se comportar.
+
+**A lista de ferramentas é constante, nunca montada por empresa.** Ela vai no
+prompt antes do bloco cacheado; variar entre clientes faria o cache nunca
+acertar, e o custo subiria cerca de dez vezes sem sintoma visível. Quem não tem
+dado numa área recebe "não há" quando a ferramenta roda.
+
+**O modelo não faz conta.** As ferramentas leem as mesmas views das telas e
+devolvem o valor já somado. Dois lugares calculando o mesmo número terminam
+divergindo, e aí o cliente perde a confiança nos dois.
+
 **Importação lê o markdown, nunca o PDF.** O relatório de PDCA nasce como
 `relatorio.md` e só depois é renderizado. Importar o PDF é analisar a própria
 saída depois de descartar a estrutura — e o PDF impresso perde até a camada de

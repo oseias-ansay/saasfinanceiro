@@ -143,6 +143,26 @@ diferença entre 01/10 e 31/10 é um mês de cobrança.
 
 ---
 
+## Assistente — escrito, falta publicar
+
+Fase 1 pronta: catálogo de sete ferramentas, executor, laço de ferramentas,
+rota `/api/v1/assistente` e tela própria no painel, abaixo de Treinamentos.
+O chat saiu de dentro do plano de ação.
+
+**Exige o SQL 59** antes do deploy: `pdca_conversas.plano_id` passa a aceitar
+nulo (conversa geral da empresa) e `pdca_mensagens` ganha a coluna
+`ferramentas`. O índice único parcial é obrigatório — no Postgres nulo nunca é
+igual a nulo, e sem ele cada pergunta criaria uma conversa nova.
+
+**Dois arquivos órfãos para apagar à mão** (o sandbox não tem permissão):
+`src/modules/pdca/ChatDoPlano.tsx` e `src/modules/pdca/useChatDoPlano.ts`.
+Ninguém mais os importa. Deixá-los é criar a segunda tela para a mesma coisa,
+que já custou dois dias neste projeto.
+
+**Fases 2 e 3** seguem abertas: vocabulário do curso nas explicações, e mais
+ferramentas conforme as perguntas gravadas mostrarem o que falta — a coluna
+`pdca_mensagens.ferramentas` existe para isso.
+
 ## Próximo item combinado
 
 **Transporte automático do relatório de PDCA** — decisão tomada em 02/10,

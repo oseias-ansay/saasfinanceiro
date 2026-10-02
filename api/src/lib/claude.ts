@@ -238,6 +238,216 @@ interface RespostaApiConversa extends RespostaApi {
   };
 }
 
+/* ==================================================================== */
+/* Conversa com ferramentas                                              */
+/* ==================================================================== */
+
+/**
+ * Uma volta de conversa em que o modelo pode consultar dados.
+ *
+ * =====================================================================
+ * COMO FUNCIONA
+ * =====================================================================
+ * O modelo não recebe os dados da empresa. Recebe a lista do que pode
+ * perguntar. Quando ele decide consultar, a resposta volta com
+ * `stop_reason: tool_use` e os pedidos; nós executamos, devolvemos os
+ * resultados como mensagem do usuário, e ele continua. Repete até ele
+ * parar de pedir.
+ *
+ * =====================================================================
+ * O TETO DE RODADAS
+ * =====================================================================
+ * Quatro. Não é proteção contra laço infinito do modelo — é contra o
+ * custo: cada rodada é uma chamada paga, e o cliente está esperando na
+ * tela. Quatro cobre com folga a pergunta composta de verdade ("quanto
+ * tenho a pagar e a receber este mês?"), que são duas.
+ *
+ * Ao estourar, a última chamada vai SEM ferramentas. Isso força o modelo
+ * a responder com o que já tem, em vez de a conversa terminar sem
+ * resposta — que é o pior desfecho possível para quem perguntou.
+ *
+ * =====================================================================
+ * O CACHE CONTINUA VALENDO
+ * =====================================================================
+ * A marca de cache fica no bloco de sistema, como antes. As definições
+ * de ferramenta são fixas e vão antes dele na ordem do prompt, então
+ * entram no mesmo prefixo cacheado — desde que a lista não mude entre
+ * perguntas. Por isso o catálogo é constante, e não montado por tenant.
+ */
+export interface FerramentaParaModelo {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
+export interface PedidoDeFerramenta {
+  id: string;
+  nome: string;
+  parametros: Record<string, unknown>;
+}
+
+export interface RespostaComFerramentas extends RespostaConversa {
+  /** Quantas idas ao modelo foram necessárias. */
+  rodadas: number;
+  /** Quais ferramentas foram chamadas, na ordem. Para o log de uso. */
+  usou: string[];
+}
+
+export async function conversarComFerramentas(opcoes: {
+  instrucao: string;
+  contexto: string;
+  mensagens: Array<{ role: 'user' | 'assistant'; content: unknown }>;
+  ferramentas: FerramentaParaModelo[];
+  /** Executa o pedido e devolve o texto do resultado. Nunca deve lançar. */
+  executar: (p: PedidoDeFerramenta) => Promise<string>;
+  modelo: string;
+  maxTokens: number;
+  maxRodadas?: number;
+}): Promise<RespostaComFerramentas> {
+  const maxRodadas = opcoes.maxRodadas ?? 4;
+  const mensagens = [...opcoes.mensagens];
+  const usou: string[] = [];
+
+  const consumo = { entrada: 0, saida: 0, cacheLido: 0, cacheEscrito: 0 };
+
+  for (let rodada = 1; rodada <= maxRodadas; rodada++) {
+    // Na última rodada, sem ferramentas: obriga a responder com o que
+    // tem. Deixar as ferramentas disponíveis faria o modelo pedir mais
+    // uma vez e a conversa terminar sem resposta.
+    const ultima = rodada === maxRodadas;
+
+    const corpo = await chamarBruto({
+      modelo: opcoes.modelo,
+      maxTokens: opcoes.maxTokens,
+      instrucao: opcoes.instrucao,
+      contexto: opcoes.contexto,
+      mensagens,
+      ferramentas: ultima ? undefined : opcoes.ferramentas,
+    });
+
+    consumo.entrada += corpo?.usage?.input_tokens ?? 0;
+    consumo.saida += corpo?.usage?.output_tokens ?? 0;
+    consumo.cacheLido += corpo?.usage?.cache_read_input_tokens ?? 0;
+    consumo.cacheEscrito += corpo?.usage?.cache_creation_input_tokens ?? 0;
+
+    const blocos = corpo?.content ?? [];
+    const pedidos = blocos.filter((b) => b.type === 'tool_use');
+
+    if (corpo?.stop_reason !== 'tool_use' || pedidos.length === 0) {
+      const texto = blocos
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text ?? '')
+        .join('')
+        .trim();
+
+      if (!texto) throw new ErroClaude('Claude devolveu resposta vazia', 'formato');
+
+      logger.info({ ...consumo, rodadas: rodada, usou }, 'Resposta do assistente');
+      return { texto, consumo, rodadas: rodada, usou };
+    }
+
+    // A resposta do modelo entra inteira no histórico — os blocos de
+    // `tool_use` precisam estar lá para os resultados abaixo casarem por
+    // id. Remontar só o texto quebraria o pareamento.
+    mensagens.push({ role: 'assistant', content: blocos });
+
+    const resultados = [];
+    for (const p of pedidos) {
+      usou.push(String(p.name));
+      const texto = await opcoes.executar({
+        id: String(p.id),
+        nome: String(p.name),
+        parametros: (p.input ?? {}) as Record<string, unknown>,
+      });
+      resultados.push({ type: 'tool_result', tool_use_id: p.id, content: texto });
+    }
+
+    mensagens.push({ role: 'user', content: resultados });
+  }
+
+  // Inalcançável: a última rodada vai sem ferramentas e sempre devolve
+  // texto. Fica como rede, porque "inalcançável" envelhece mal.
+  throw new ErroClaude('O assistente não concluiu a resposta', 'formato');
+}
+
+interface BlocoResposta {
+  type: string;
+  text?: string;
+  id?: string;
+  name?: string;
+  input?: unknown;
+}
+
+interface CorpoComFerramentas {
+  content?: BlocoResposta[];
+  stop_reason?: string;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
+  error?: { type?: string; message?: string };
+}
+
+/** A chamada crua. Separada para o laço acima ficar legível. */
+async function chamarBruto(o: {
+  modelo: string;
+  maxTokens: number;
+  instrucao: string;
+  contexto: string;
+  mensagens: Array<{ role: string; content: unknown }>;
+  ferramentas?: FerramentaParaModelo[];
+}): Promise<CorpoComFerramentas> {
+  if (!env.ANTHROPIC_API_KEY) {
+    throw new ErroClaude('ANTHROPIC_API_KEY não configurada', 'config');
+  }
+
+  const controle = new AbortController();
+  const relogio = setTimeout(() => controle.abort(), env.ANTHROPIC_TIMEOUT_MS);
+
+  try {
+    const resp = await fetch(URL_MENSAGENS, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': env.ANTHROPIC_API_KEY,
+        'anthropic-version': VERSAO_API,
+      },
+      body: JSON.stringify({
+        model: o.modelo,
+        max_tokens: o.maxTokens,
+        temperature: 0.2,
+        ...(o.ferramentas ? { tools: o.ferramentas } : {}),
+        system: [
+          { type: 'text', text: o.instrucao },
+          { type: 'text', text: o.contexto, cache_control: { type: 'ephemeral' } },
+        ],
+        messages: o.mensagens,
+      }),
+      signal: controle.signal,
+    });
+
+    const corpo = (await resp.json().catch(() => null)) as CorpoComFerramentas | null;
+
+    if (!resp.ok) {
+      throw new ErroClaude(
+        `Claude respondeu ${resp.status}: ${corpo?.error?.message ?? 'sem detalhe'}`,
+        'http',
+        { status: resp.status, tipo: corpo?.error?.type },
+      );
+    }
+
+    return corpo ?? {};
+  } catch (e) {
+    if (e instanceof ErroClaude) throw e;
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new ErroClaude(`Falha ao falar com o Claude: ${msg}`, 'rede');
+  } finally {
+    clearTimeout(relogio);
+  }
+}
+
 export async function conversar(opcoes: {
   /** Instrução fixa do assistente. */
   instrucao: string;
