@@ -125,7 +125,9 @@ with esperado(tabela, coluna, arquivo) as (values
   ('tenants',               'recursos_extras', '23'),
   ('credito_documentos',    'drive_file_id', '55'),
   ('credito_documentos',    'sync_tentativas', '55'),
-  ('pdca_mensagens',        'tokens_cache', '56')
+  ('pdca_mensagens',        'tokens_cache', '56'),
+  ('planos_acao',           'origem',       '58'),
+  ('planos_acao',           'diagnostico_competencia', '58')
 )
 select
   x.tabela || '.' || x.coluna     as faltando,

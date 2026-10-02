@@ -32,6 +32,7 @@ import { supabaseAdmin } from '../../lib/supabase.js';
 import { fromPostgrest, badRequest } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
 import { calcularRegua, VERSAO_REGUA, type EntradaRegua } from '../regua/regua.js';
+import { gerarPlanoAutomatico } from '../pdca/automatico.service.js';
 import { requireWebhookSecret } from '../webhooks/secret.js';
 
 export const mensalRouter = Router();
@@ -112,6 +113,14 @@ interface Resultado {
   mensagem?: string;
   ja_cobrado?: boolean;
   erro?: string;
+  /**
+   * O que aconteceu com o plano automático desta empresa.
+   *
+   * Texto, e não booleano: "não criado" sem motivo obrigaria a abrir o
+   * log para saber se foi falta de recurso, plano de consultor no lugar,
+   * ou defeito. No e-mail interno da apuração, o motivo é a informação.
+   */
+  plano_automatico?: string;
 }
 
 /**
@@ -217,6 +226,28 @@ mensalRouter.post('/apurar', async (req, res, next) => {
         );
         if (error) throw fromPostgrest(error);
 
+        /* --------------------------------------------------------------
+         * O plano de ação automático
+         * --------------------------------------------------------------
+         * Apurado o mês, o plano do mês nasce — sem reunião e sem IA. É o
+         * que faz o Básico entregar acompanhamento: quadro de ações, card
+         * de pendências e chat, tudo a partir dos alertas que a régua
+         * acabou de calcular.
+         *
+         * Depois do upsert, de propósito: o diagnóstico precisa estar
+         * gravado antes de um plano apontar para ele.
+         *
+         * E fora do caminho crítico: `gerarPlanoAutomatico` nunca lança.
+         * A apuração de toda a base não pode cair porque um plano não pôde
+         * ser criado — o score é o produto, o plano é o derivado.
+         */
+        const plano = await gerarPlanoAutomatico({
+          tenantId: alvo.tenant_id,
+          competencia,
+          competenciaDiagnostico: competencia,
+          regua: r,
+        });
+
         resultados.push({
           tenant_id: alvo.tenant_id,
           nome: alvo.nome,
@@ -225,6 +256,9 @@ mensalRouter.post('/apurar', async (req, res, next) => {
           score_total: r.score.scoreTotal,
           nivel: r.score.nivelSaude,
           completude_pct: 100,
+          plano_automatico: plano.criado
+            ? `${plano.acoes} ações`
+            : `não criado — ${plano.motivo}`,
         });
       } catch (e) {
         // Uma empresa com problema não pode derrubar a apuração das
