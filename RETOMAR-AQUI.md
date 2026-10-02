@@ -119,12 +119,25 @@ colado pelo consultor no editor do plano. Sem ele o chat conhece as ações e
 não o raciocínio que as ordenou. **O 57 é obrigatório junto do 56** — a rota
 pede a coluna no `select`, e sem ela a tela do plano quebra inteira.
 
-Para o relatório de PDCA entrar no chat, o caminho é **cadastrar o plano na
-plataforma** e colar a síntese no campo de diagnóstico. O PDF não é lido, e
-não por falta de ferramenta: o relatório do Auto Posto Esperança, medido em
-02/10, tem zero fontes e nenhuma camada de texto — 18 páginas desenhadas como
-vetor, `pdftotext` extrai 18 bytes. OCR seria o único caminho, e OCR de
+**Importação do plano a partir do relatório** — `relatorio.ts`, 29 testes.
+Lê a tabela 5W2H e o sumário executivo do **markdown** do relatório, propõe
+numa tela editável e só grava o que o consultor confirmar.
+
+**É o markdown, não o PDF, e isso é decisão.** A skill
+`plano-acao-pdca-triage` escreve `relatorio.md` e só depois roda
+`gerar_pdf.py`. A estrutura existe antes da fotografia: as colunas da 5W2H
+(`O quê?`, `Quem?`, `Quando?`, `Área`) caem uma-para-uma nos campos de
+`acoes`. Importar o PDF seria analisar a própria saída depois de descartar a
+estrutura — e o PDF do Auto Posto, medido em 02/10, tem zero fontes e
+nenhuma camada de texto: `pdftotext` extrai 18 bytes de 18 páginas, porque
+passou por "Microsoft: Print To PDF". OCR seria o único caminho, e OCR de
 relatório financeiro erra onde dói.
+
+**O prazo nunca é adivinhado.** O gabarito admite período em "Quando?" —
+"Onda 2", "Out/2026", "[definido neste plano]". Nada disso vira data: o
+campo fica em branco e destacado, com o texto original ao lado, e o salvar
+fica bloqueado. Mês sem dia não é chutado para o dia 1 nem para o último: a
+diferença entre 01/10 e 31/10 é um mês de cobrança.
 
 **613 testes passando.**
 

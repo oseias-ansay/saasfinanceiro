@@ -58,6 +58,7 @@ import {
   reservarChamada,
 } from '../diagnosticos/orcamento.js';
 import { montarContexto, type AcaoDoContexto } from './contexto.js';
+import { lerRelatorio } from './relatorio.js';
 import {
   corpoPerguntaSchema,
   INSTRUCAO,
@@ -156,6 +157,124 @@ async function consultarTeto(tenantId: string) {
     permitido: r.permitido !== false,
   };
 }
+
+/* ==================================================================== */
+/* Importação do relatório                                               */
+/* ==================================================================== */
+//
+// Duas rotas, e a separação entre elas é a regra: a PRÉVIA não grava
+// nada, a IMPORTAÇÃO grava só o que o consultor devolveu depois de
+// revisar. Mesmo desenho da importação de produtos por planilha.
+//
+// Uma rota só, que lesse e gravasse na mesma chamada, pareceria mais
+// simples e seria o defeito: prazo extraído errado entraria como
+// compromisso sem ninguém ter olhado. Extração propõe; pessoa decide.
+//
+// Quem pode é decidido pelo RLS, não aqui: a policy `acoes_insert` do
+// SQL 17 exige `is_platform_staff()`, e o insert abaixo usa o client do
+// usuário. Repetir a regra na API criaria dois lugares para ela divergir.
+
+const previaSchema = z.object({
+  // Limite generoso: um relatório de PDCA completo em markdown dá uns
+  // 60 mil caracteres. O corte existe só para um arquivo trocado por
+  // engano não virar processamento inútil.
+  markdown: z.string().min(1, 'Cole o conteúdo do relatório.').max(400_000),
+});
+
+pdcaRouter.post('/plano/previa', validate(previaSchema), async (req, res, next) => {
+  try {
+    const { markdown } = req.body as z.infer<typeof previaSchema>;
+    res.json({ data: lerRelatorio(markdown) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * O que o consultor confirmou na tela.
+ *
+ * Recebe as ações já revisadas, não o markdown: entre a prévia e aqui ele
+ * corrigiu prazo, completou responsável e tirou o que não quis. Reenviar
+ * o markdown e extrair de novo descartaria essas correções.
+ */
+const importarSchema = z.object({
+  plano_id: z.string().uuid(),
+  contexto: z.string().max(8000).nullish(),
+  acoes: z
+    .array(
+      z.object({
+        titulo: z.string().trim().min(3).max(200),
+        detalhe: z.string().trim().max(4000).nullish(),
+        pilar: z.string().trim().max(120).nullish(),
+        // Obrigatórios no banco, e por isso obrigatórios aqui: a tela
+        // bloqueia o salvar enquanto faltarem, e esta validação é o que
+        // garante que o bloqueio não possa ser contornado.
+        responsavel_nome: z.string().trim().min(2).max(160),
+        prazo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Prazo em formato inválido.'),
+      }),
+    )
+    .min(1, 'Nenhuma ação para importar.')
+    .max(60),
+});
+
+pdcaRouter.post('/plano/importar', validate(importarSchema), async (req, res, next) => {
+  try {
+    const tenant = req.tenantId!;
+    const corpo = req.body as z.infer<typeof importarSchema>;
+    const db = doUsuario(req);
+
+    // O plano precisa ser DESTA empresa. Sem esta conferência, um
+    // `plano_id` de outro tenant faria as ações nascerem no plano do
+    // concorrente — e o RLS de `acoes` não pegaria, porque o tenant_id
+    // gravado seria o certo.
+    const { data: plano, error: e1 } = await db
+      .from('planos_acao')
+      .select('id, tenant_id')
+      .eq('id', corpo.plano_id)
+      .eq('tenant_id', tenant)
+      .maybeSingle();
+
+    if (e1) throw fromPostgrest(e1);
+    if (!plano) throw new AppError(404, 'Plano não encontrado nesta empresa.', 'sem_plano');
+
+    // A ordem segue a da tela, que segue a do relatório — os níveis da
+    // Matriz GUT vêm ordenados, e perder isso embaralharia a prioridade.
+    const { data: criadas, error: e2 } = await db
+      .from('acoes')
+      .insert(
+        corpo.acoes.map((a, i) => ({
+          plano_id: corpo.plano_id,
+          tenant_id: tenant,
+          titulo: a.titulo,
+          detalhe: a.detalhe ?? null,
+          pilar: a.pilar ?? null,
+          responsavel_nome: a.responsavel_nome,
+          prazo: a.prazo,
+          ordem: i,
+        })) as never,
+      )
+      .select('id');
+
+    if (e2) throw fromPostgrest(e2);
+
+    // O contexto é opcional e vai no mesmo passo: o consultor acabou de
+    // revisar o sumário na tela, e pedir um segundo salvar para ele seria
+    // convidar a esquecer.
+    if (corpo.contexto !== undefined) {
+      const { error } = await db
+        .from('planos_acao')
+        .update({ contexto: corpo.contexto?.trim() || null } as never)
+        .eq('id', corpo.plano_id)
+        .eq('tenant_id', tenant);
+      if (error) throw fromPostgrest(error);
+    }
+
+    logger.info({ tenant, acoes: criadas?.length ?? 0 }, 'Plano importado do relatório');
+    res.json({ data: { criadas: criadas?.length ?? 0 } });
+  } catch (e) {
+    next(e);
+  }
+});
 
 /* ==================================================================== */
 /* A conversa e o histórico                                              */

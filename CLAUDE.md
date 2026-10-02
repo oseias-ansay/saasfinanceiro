@@ -105,6 +105,16 @@ declaram isso porque o contador do cliente chega a outro número.
 **O diagnóstico é gerado por IA com teto diário** (`IA_LIMITE_DIARIO`). Cada
 chamada custa dinheiro real.
 
+**Importação lê o markdown, nunca o PDF.** O relatório de PDCA nasce como
+`relatorio.md` e só depois é renderizado. Importar o PDF é analisar a própria
+saída depois de descartar a estrutura — e o PDF impresso perde até a camada de
+texto. Ver `modules/pdca/relatorio.ts`.
+
+**Dado ausente ou ambíguo sai como `null`, com aviso.** Vale para planilha e
+para relatório. Prazo que o relatório deu como período ("Onda 2") não vira
+data: fica em branco, destacado, e a tela bloqueia o salvar. Número inventado
+num plano de ação é compromisso que ninguém assumiu.
+
 ## Estado atual
 
 `RETOMAR-AQUI.md` tem o que está pendente. Leia antes de começar.
