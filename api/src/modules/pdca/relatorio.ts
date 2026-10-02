@@ -319,6 +319,26 @@ export function acharTabelaDeAcoes(tabelas: TabelaMarkdown[]): TabelaMarkdown | 
  * quebra de parágrafo mais próxima, não no meio da frase: texto cortado
  * no meio de um número é pior que texto mais curto.
  */
+/**
+ * Tira a marcação HTML do gerador de PDF, preservando o texto.
+ *
+ * O relatório mistura markdown com blocos HTML — os cartões de KPI são
+ * `<div class="kpi">`, e o rodapé é um `<p class="small">`. Essa marcação
+ * é instrução de layout: no contexto do chat ela ocupa tokens em toda
+ * pergunta e não significa nada para o modelo.
+ *
+ * Remove as TAGS, não o conteúdo. Dentro de um cartão de KPI está
+ * "Faturamento mensal" e "R$ 1,67 mi" — número real da empresa, que o
+ * chat precisa. Jogar o bloco inteiro fora levaria o número junto.
+ */
+function limparHtml(texto: string): string {
+  return texto
+    .split('\n')
+    .map((l) => (/<[a-z/][^>]*>/i.test(l) ? l.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : l))
+    .filter((l, i, todas) => l !== '' || todas[i - 1] !== '')
+    .join('\n');
+}
+
 export function extrairContexto(markdown: string, limite = 8000): string | null {
   const linhas = markdown.split(/\r?\n/);
   const inicio = linhas.findIndex((l) =>
@@ -328,7 +348,7 @@ export function extrairContexto(markdown: string, limite = 8000): string | null 
 
   const resto = linhas.slice(inicio + 1);
   const fim = resto.findIndex((l) => /^##\s/.test(l) && !/^###/.test(l));
-  const bloco = (fim === -1 ? resto : resto.slice(0, fim)).join('\n').trim();
+  const bloco = limparHtml((fim === -1 ? resto : resto.slice(0, fim)).join('\n')).trim();
 
   if (!bloco) return null;
   if (bloco.length <= limite) return bloco;

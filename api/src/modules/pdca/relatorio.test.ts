@@ -324,6 +324,25 @@ describe('o contexto', () => {
     assert.match(extrairContexto(RELATORIO)!, /Classificação/);
   });
 
+  /**
+   * O relatório mistura markdown com HTML do gerador de PDF — os cartões
+   * de KPI são `<div class="kpi">`. A marcação é instrução de layout e
+   * ocupa tokens em toda pergunta do chat; os números dentro dela são da
+   * empresa. Por isso remove a tag e preserva o conteúdo.
+   */
+  it('tira a marcação HTML e mantém os números', () => {
+    const c = extrairContexto(
+      '## Sumário executivo\n\n' +
+        '<div class="kpis">\n' +
+        '<div class="kpi"><div class="k">Cobertura de caixa</div><div class="v">2,91 dias</div></div>\n' +
+        '</div>\n\nTexto normal.',
+    );
+    assert.doesNotMatch(c!, /<div|<\/div>/);
+    assert.match(c!, /Cobertura de caixa/);
+    assert.match(c!, /2,91 dias/);
+    assert.match(c!, /Texto normal\./);
+  });
+
   it('devolve nulo quando não há sumário', () => {
     assert.equal(extrairContexto('# Título\n\n## Outra coisa\n\nTexto.'), null);
   });
