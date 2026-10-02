@@ -143,6 +143,33 @@ diferença entre 01/10 e 31/10 é um mês de cobrança.
 
 ---
 
+## Próximo item combinado
+
+**Transporte automático do relatório de PDCA** — decisão tomada em 02/10,
+implementação adiada.
+
+Hoje o consultor copia o markdown do relatório e cola na tela de
+importação. O que vale automatizar é o **transporte**, não a conferência:
+
+- A skill `plano-acao-pdca-triage`, ao terminar, envia o markdown para uma
+  rota autenticada por token. A empresa é identificada pelo CNPJ do
+  cabeçalho do relatório.
+- O plano chega como **pendente**, com a prévia montada, e espera um clique
+  do consultor para publicar.
+
+**Por que a confirmação fica.** As ações importadas entram num plano de
+origem `consultor`, onde prazo e responsável são fixos para o cliente — ele
+não pode corrigir. Uma extração errada vira cobrança que ninguém acordou. No
+relatório do Auto Posto, duas das dez ações dependeram do D0 escolhido à mão
+e uma misturava "esta semana" com "D+30": são exatamente os casos em que um
+olho humano decide melhor que uma regra.
+
+Se um dia a confirmação sair, o plano importado precisa passar a `origem =
+'automatico'`, para o cliente poder ajustar o que ninguém conferiu.
+
+Estimativa: 3 a 4 horas — rota com token, resolução por CNPJ, estado de
+plano pendente, ajuste na skill.
+
 ## Em avaliação, sem decisão tomada
 
 **Marca branca para a agência de marketing.** Avaliada: tecnicamente é
