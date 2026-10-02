@@ -298,6 +298,21 @@ export interface MesDRE {
   mes: string;
   receita: number;
   custos: number;
+  /**
+   * Margem de contribuição, calculada pela view — nunca aqui.
+   *
+   * O campo existe porque a primeira versão o omitia, e o efeito apareceu
+   * em produção em 02/10/2026: perguntaram "qual é a minha margem de
+   * contribuição", a ferramenta devolveu receita e custos sem a MC, e o
+   * modelo fez a subtração sozinho. Deu um número errado com toda a
+   * aparência de certo.
+   *
+   * A lição vale além deste campo: INDICADOR QUE A FERRAMENTA NÃO DEVOLVE
+   * É INDICADOR QUE O MODELO VAI DERIVAR. Não adianta proibir na
+   * instrução — se os ingredientes estão na mesa, ele cozinha.
+   */
+  margem_contribuicao: number;
+  margem_contribuicao_pct: number | null;
   despesas: number;
   resultado: number;
 }
@@ -307,14 +322,21 @@ export function resumirDRE(meses: MesDRE[]): string {
 
   const l: string[] = [];
   for (const m of meses) {
-    const margem = m.receita > 0 ? ((m.resultado / m.receita) * 100).toFixed(1) : null;
+    const pct = m.margem_contribuicao_pct;
+    const resultadoPct =
+      m.receita > 0 ? ` (${((m.resultado / m.receita) * 100).toFixed(1)}% da receita)` : '';
+
     l.push(
-      `${m.mes}: receita ${brl(m.receita)} · custos ${brl(m.custos)} · ` +
-        `despesas ${brl(m.despesas)} · resultado ${brl(m.resultado)}` +
-        (margem === null ? '' : ` (${margem}% da receita)`),
+      `${m.mes}:\n` +
+        `  Receita líquida: ${brl(m.receita)}\n` +
+        `  Custos variáveis: ${brl(m.custos)}\n` +
+        `  Margem de contribuição: ${brl(m.margem_contribuicao)}` +
+        (pct === null ? '' : ` (${pct.toFixed(2)}% da receita líquida)`) + '\n' +
+        `  Despesas fixas: ${brl(m.despesas)}\n` +
+        `  Resultado: ${brl(m.resultado)}${resultadoPct}`,
     );
   }
-  return l.join('\n');
+  return l.join('\n\n');
 }
 
 export interface Alerta {

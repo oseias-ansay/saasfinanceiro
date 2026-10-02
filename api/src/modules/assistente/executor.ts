@@ -168,8 +168,12 @@ async function resultadoDoMes(
 ): Promise<ResultadoFerramenta> {
   const { data, error } = await db
     .from('vw_dre_monthly')
+    // `margem_contribuicao` e o percentual vêm da VIEW. Omiti-los foi o
+    // que levou o modelo a calcular a MC por conta própria e errar — ver
+    // a nota em `MesDRE`.
     .select(
-      'competencia, receita_bruta, deducoes, custos_variaveis, despesas_fixas, resultado_liquido',
+      'competencia, receita_bruta, deducoes, custos_variaveis, margem_contribuicao, ' +
+        'margem_contribuicao_pct, despesas_fixas, resultado_liquido',
     )
     .eq('tenant_id', tenantId)
     .order('competencia', { ascending: false })
@@ -182,6 +186,11 @@ async function resultadoDoMes(
     mes: String(m.competencia).slice(0, 7),
     receita: Number(m.receita_bruta ?? 0) - Number(m.deducoes ?? 0),
     custos: Number(m.custos_variaveis ?? 0),
+    margem_contribuicao: Number(m.margem_contribuicao ?? 0),
+    margem_contribuicao_pct:
+      m.margem_contribuicao_pct === null || m.margem_contribuicao_pct === undefined
+        ? null
+        : Number(m.margem_contribuicao_pct),
     despesas: Number(m.despesas_fixas ?? 0),
     resultado: Number(m.resultado_liquido ?? 0),
   }));

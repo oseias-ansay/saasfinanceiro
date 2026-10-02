@@ -234,13 +234,45 @@ describe('os outros resumos', () => {
     assert.match(t, /- Banco: R\$\s?4\.000,00/);
   });
 
-  it('DRE: calcula a margem sobre a receita e não divide por zero', () => {
+  /**
+   * Caso real, 02/10/2026: perguntaram a margem de contribuição, a
+   * ferramenta devolveu receita e custos sem a MC, e o modelo subtraiu um
+   * do outro. Deu número errado com toda a aparência de certo.
+   *
+   * A regra que nasceu daí: indicador que a ferramenta não devolve é
+   * indicador que o modelo vai derivar. Não adianta proibir na instrução
+   * — se os ingredientes estão na mesa, ele cozinha.
+   */
+  it('DRE: traz a margem de contribuição pronta, em valor e percentual', () => {
     const t = resumirDRE([
-      { mes: '2026-09', receita: 100000, custos: 60000, despesas: 20000, resultado: 20000 },
-      { mes: '2026-08', receita: 0, custos: 0, despesas: 1000, resultado: -1000 },
+      {
+        mes: '2026-09',
+        receita: 100000,
+        custos: 60000,
+        margem_contribuicao: 40000,
+        margem_contribuicao_pct: 40,
+        despesas: 20000,
+        resultado: 20000,
+      },
     ]);
-    assert.match(t, /20,0% da receita|20.0% da receita/);
-    assert.match(t, /2026-08: receita R\$\s?0,00/);
+    assert.match(t, /Margem de contribuição: R\$\s?40\.000,00/);
+    assert.match(t, /40,00% da receita líquida|40.00% da receita líquida/);
+  });
+
+  it('DRE: não divide por zero no mês sem receita', () => {
+    const t = resumirDRE([
+      {
+        mes: '2026-08',
+        receita: 0,
+        custos: 0,
+        margem_contribuicao: 0,
+        margem_contribuicao_pct: null,
+        despesas: 1000,
+        resultado: -1000,
+      },
+    ]);
+    assert.match(t, /Receita líquida: R\$\s?0,00/);
+    assert.doesNotMatch(t, /NaN|Infinity/);
   });
 
   it('diagnóstico: separa crítico de atenção', () => {
@@ -292,6 +324,16 @@ describe('a instrução do assistente', () => {
   it('amarra número da empresa a ferramenta', () => {
     assert.match(INSTRUCAO_ASSISTENTE, /vêm das ferramentas/i);
     assert.match(INSTRUCAO_ASSISTENTE, /nunca estime/i);
+  });
+
+  /**
+   * Caso real de 02/10/2026. A instrução anterior já proibia estimar, e
+   * mesmo assim o modelo derivou a MC de receita menos custos — porque
+   * derivar não parece estimar. Precisou de uma regra própria.
+   */
+  it('proíbe derivar indicador que a ferramenta não devolveu', () => {
+    assert.match(INSTRUCAO_ASSISTENTE, /não derive indicador/i);
+    assert.match(INSTRUCAO_ASSISTENTE, /mesmo que a fórmula seja óbvia/i);
   });
 
   it('separa conceito de número', () => {
