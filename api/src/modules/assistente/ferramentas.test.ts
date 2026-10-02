@@ -62,6 +62,18 @@ describe('o contrato das ferramentas', () => {
     }
   });
 
+  /**
+   * A descrição é o contrato que o modelo lê. Indicador que a ferramenta
+   * devolve e a descrição não nomeia é indicador invisível — ele recusa a
+   * responder sobre um número que tem em mãos. Aconteceu em 02/10/2026
+   * com a margem de contribuição.
+   */
+  it('a descrição nomeia os indicadores que a ferramenta devolve', () => {
+    assert.match(FERRAMENTAS.resultado_do_mes.descricao, /margem de contribuição/i);
+    assert.match(FERRAMENTAS.resultado_do_mes.descricao, /receita líquida/i);
+    assert.match(FERRAMENTAS.ultimo_diagnostico.descricao, /ciclo financeiro|prazos médios/i);
+  });
+
   it('toda ferramenta tem descrição útil para o modelo decidir', () => {
     for (const nome of NOMES) {
       const d = FERRAMENTAS[nome].descricao;
@@ -343,6 +355,17 @@ describe('a instrução do assistente', () => {
 
   it('manda não corrigir o vocabulário', () => {
     assert.match(INSTRUCAO_ASSISTENTE, /nunca corrija o vocabul[áa]rio/i);
+  });
+
+  /**
+   * A recusa de 02/10/2026 veio acompanhada de uma tela inventada —
+   * "DRE Gerencial, detalhado por produto ou categoria". Instrução de
+   * navegação errada faz a pessoa procurar o que não existe, e custa mais
+   * confiança que admitir não saber o caminho.
+   */
+  it('proíbe inventar tela ou caminho', () => {
+    assert.match(INSTRUCAO_ASSISTENTE, /não invente telas/i);
+    assert.match(INSTRUCAO_ASSISTENTE, /confira a descrição das ferramentas/i);
   });
 
   it('deixa claro que não escreve nada', () => {

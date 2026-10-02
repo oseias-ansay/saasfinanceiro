@@ -91,6 +91,18 @@ const dias = z
  * descreve a PERGUNTA que a ferramenta responde, não a tabela que ela
  * consulta — "o que vence nos próximos dias" acerta mais que "consulta
  * transactions com status pendente".
+ *
+ * E ela precisa NOMEAR OS INDICADORES que a ferramenta devolve.
+ *
+ * Isso custou duas respostas erradas em 02/10/2026, uma depois da outra.
+ * Primeiro a DRE não devolvia a margem de contribuição, e o modelo a
+ * calculou sozinho — número errado. Corrigi a ferramenta, mas não a
+ * descrição: ela seguia falando em "lucro, resultado, faturamento". O
+ * modelo não soube que a margem estava ali e respondeu que o dado não
+ * existia — recusa errada sobre um número que ele tinha em mãos.
+ *
+ * A descrição é o contrato. Indicador que a ferramenta devolve e a
+ * descrição não nomeia é indicador invisível.
  */
 export const FERRAMENTAS = {
   contas_a_pagar: {
@@ -125,9 +137,11 @@ export const FERRAMENTAS = {
 
   resultado_do_mes: {
     descricao:
-      'A DRE gerencial: receitas, custos, despesas e resultado do mês. Use quando ' +
-      'perguntarem sobre lucro, resultado, faturamento, despesas do mês ou comparação ' +
-      'entre meses.',
+      'A DRE gerencial do mês, com estes valores já calculados: receita líquida, ' +
+      'custos variáveis, MARGEM DE CONTRIBUIÇÃO em reais e em percentual, despesas ' +
+      'fixas e resultado do período. Use quando perguntarem sobre lucro, resultado, ' +
+      'faturamento, receita, custos, despesas, margem de contribuição, margem do mês, ' +
+      'ou comparação entre meses.',
     parametros: z.object({
       meses: z
         .number()
@@ -141,9 +155,11 @@ export const FERRAMENTAS = {
 
   ultimo_diagnostico: {
     descricao:
-      'O diagnóstico financeiro mais recente da empresa: pontuação, nível de saúde e ' +
-      'os indicadores que acenderam alerta, com o valor de cada um. Use quando ' +
-      'perguntarem como está a saúde financeira, o score, ou o que está ruim.',
+      'O diagnóstico financeiro mais recente: pontuação, nível de saúde e os ' +
+      'indicadores que acenderam alerta, com o valor já calculado de cada um — ' +
+      'cobertura de caixa, ciclo financeiro, prazos médios, endividamento, ' +
+      'liquidez. Use quando perguntarem como está a saúde financeira, o score, ' +
+      'o que está ruim, ou por um indicador que não esteja na DRE.',
     parametros: z.object({}),
   },
 
