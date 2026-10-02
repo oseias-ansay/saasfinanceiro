@@ -201,6 +201,30 @@ describe('a instrução do assistente', () => {
     assert.match(INSTRUCAO, /não estime/i);
   });
 
+  /**
+   * Caso real, em 02/10/2026: perguntaram "quais as próximas ações do
+   * Plano de Negócios?" e a resposta gastou um parágrafo explicando que o
+   * plano era "do tipo financeiro, não Plano de Negócios".
+   *
+   * Para quem pergunta, é tudo a mesma coisa: o que ele precisa fazer na
+   * empresa. Corrigir o vocabulário não ajuda e faz a conversa parecer um
+   * formulário.
+   */
+  it('proíbe corrigir o vocabulário de quem pergunta', () => {
+    assert.match(INSTRUCAO, /não corrija o vocabul[áa]rio/i);
+    assert.match(INSTRUCAO, /plano de neg[óo]cios/i);
+  });
+
+  /**
+   * Mesma conversa: com o plano ainda vazio, a resposta parou em "não
+   * consigo listar nenhuma". Verdadeiro e inútil — havia diagnóstico no
+   * contexto que respondia a pergunta por outro caminho.
+   */
+  it('manda usar o diagnóstico quando não há ações', () => {
+    assert.match(INSTRUCAO, /ainda n[ãa]o tem a[çc][õo]es/i);
+    assert.match(INSTRUCAO, /verdadeiro e in[úu]til/i);
+  });
+
   it('manda devolver as perguntas de crédito e jurídico ao consultor', () => {
     assert.match(INSTRUCAO, /empréstimo/i);
     assert.match(INSTRUCAO, /consultor/i);
