@@ -368,6 +368,31 @@ describe('a instrução do assistente', () => {
     assert.match(INSTRUCAO_ASSISTENTE, /confira a descrição das ferramentas/i);
   });
 
+  /**
+   * Caso real de 02/10/2026: pediram o impacto de baixar R$ 0,10 no preço
+   * da gasolina, faltava saber os litros vendidos, e ele recusou em vez de
+   * perguntar. Recusar sem pedir o dado é o defeito, não a cautela.
+   */
+  it('autoriza simulação e manda pedir o dado que falta', () => {
+    assert.match(INSTRUCAO_ASSISTENTE, /simulações e projeções: você faz, sim/i);
+    assert.match(INSTRUCAO_ASSISTENTE, /nunca recuse por falta de dado sem antes pedir/i);
+    assert.match(INSTRUCAO_ASSISTENTE, /mostre a conta/i);
+  });
+
+  /**
+   * As duas seções sobre fazer conta precisam apontar uma para a outra.
+   * Lida isolada, cada uma vira uma regra absoluta errada: ou ele recusa
+   * toda conta, ou recalcula a margem oficial e diverge da tela.
+   */
+  it('a proibição de derivar aponta para a permissão de simular', () => {
+    assert.match(INSTRUCAO_ASSISTENTE, /para cenário hipotético, veja a seção de simulações/i);
+  });
+
+  it('simulação não vira recomendação', () => {
+    assert.match(INSTRUCAO_ASSISTENTE, /não transforme simulação em recomendação/i);
+    assert.match(INSTRUCAO_ASSISTENTE, /não inventa sazonalidade/i);
+  });
+
   it('deixa claro que não escreve nada', () => {
     assert.match(INSTRUCAO_ASSISTENTE, /não lança, não paga/i);
   });

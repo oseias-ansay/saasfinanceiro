@@ -10,6 +10,25 @@ Depois delas, o que está no ar, o que está em avaliação e as lições.
 
 ## Pendências
 
+### 0. Repor os tetos de IA — combinado para segunda, 06/10/2026
+
+Em 02/10 os limites foram afrouxados no `.env` da API para a rodada de testes
+do assistente:
+
+- `PDCA_CHAT_LIMITE_24H=1000` → voltar para **30**
+- `IA_LIMITE_DIARIO` elevado → voltar ao valor anterior
+
+```bash
+# no servidor (VPS)
+cd /opt/finance-src/api && nano .env && docker compose up -d
+```
+
+Sem `--build`: só o ambiente muda.
+
+**Por que isto abre a lista.** Teto de gasto afrouxado não dá sintoma — tudo
+funciona melhor. Só aparece na fatura, semanas depois. É a pendência mais fácil
+de esquecer e a única que custa dinheiro todo dia em que fica esquecida.
+
 ### 1. Rotacionar credenciais expostas
 
 Apareceram em texto claro ao longo do trabalho:
@@ -143,25 +162,50 @@ diferença entre 01/10 e 31/10 é um mês de cobrança.
 
 ---
 
-## Assistente — escrito, falta publicar
+## Assistente — Fase 1 no ar e validada
 
-Fase 1 pronta: catálogo de sete ferramentas, executor, laço de ferramentas,
-rota `/api/v1/assistente` e tela própria no painel, abaixo de Treinamentos.
-O chat saiu de dentro do plano de ação.
+Publicado e testado em 02/10/2026 com o Auto Posto Esperança. Sete
+ferramentas, tela própria no painel abaixo de Treinamentos, SQL 59 aplicado.
+Cinco perguntas de aceitação passam, incluindo a que separa conceito de
+número e a que recusa escrita.
 
-**Exige o SQL 59** antes do deploy: `pdca_conversas.plano_id` passa a aceitar
-nulo (conversa geral da empresa) e `pdca_mensagens` ganha a coluna
-`ferramentas`. O índice único parcial é obrigatório — no Postgres nulo nunca é
-igual a nulo, e sem ele cada pergunta criaria uma conversa nova.
+### A regra que as duas falhas de estreia ensinaram
 
-**Dois arquivos órfãos para apagar à mão** (o sandbox não tem permissão):
-`src/modules/pdca/ChatDoPlano.tsx` e `src/modules/pdca/useChatDoPlano.ts`.
-Ninguém mais os importa. Deixá-los é criar a segunda tela para a mesma coisa,
-que já custou dois dias neste projeto.
+Perguntaram a margem de contribuição e ele **inventou** o valor: a ferramenta
+devolvia receita e custos sem a MC, e ele subtraiu. Corrigi a ferramenta e ele
+passou a **negar** o mesmo número: a descrição seguia falando em "lucro,
+resultado, faturamento", e ele não soube que a MC estava ali.
 
-**Fases 2 e 3** seguem abertas: vocabulário do curso nas explicações, e mais
-ferramentas conforme as perguntas gravadas mostrarem o que falta — a coluna
-`pdca_mensagens.ferramentas` existe para isso.
+Daí as duas regras, que valem para toda ferramenta nova:
+
+- **Indicador que a ferramenta não devolve é indicador que o modelo deriva.**
+  Se a tela mostra um indicador calculado, a ferramenta devolve ele pronto —
+  nunca os ingredientes. Proibir na instrução não basta: derivar não parece
+  estimar.
+- **A descrição é o contrato.** Indicador devolvido e não nomeado na descrição
+  é indicador invisível.
+
+### Dois arquivos órfãos para apagar à mão
+
+O sandbox não tem permissão: `src/modules/pdca/ChatDoPlano.tsx` e
+`src/modules/pdca/useChatDoPlano.ts`. Ninguém mais os importa. Deixá-los é
+recriar a segunda tela para a mesma coisa, que já custou dois dias aqui.
+
+### Fase 3 — ferramentas candidatas
+
+Os indicadores que a plataforma calcula e o assistente ainda não alcança:
+ciclo financeiro e prazos médios (`vw_prazos_medios`), ponto de equilíbrio e
+margem por produto (`mix_produtos`), fluxo de caixa projetado
+(`vw_fluxo_semanal`), capital de giro. Todos se encaixam no critério acima.
+
+A ordem deve sair das perguntas reais, não desta lista: a coluna
+`pdca_mensagens.ferramentas` registra o que foi consultado, e a pergunta sem
+ferramenta aparece no texto das mensagens.
+
+### Fase 2 — calibragem
+
+Vocabulário do curso nas explicações de conceito, para o assistente e as aulas
+falarem igual. Depende de ver respostas reais primeiro.
 
 ## Próximo item combinado
 
@@ -192,6 +236,51 @@ plano pendente, ajuste na skill.
 
 ## Em avaliação, sem decisão tomada
 
+**Indicadores econômicos no assistente** — levantado em 02/10/2026, decisão
+adiada.
+
+A ideia: o cliente consultar IPCA, IGP-M, Selic, dólar e euro pelo chat. Vira
+uma ferramenta como as outras.
+
+**O bloqueio técnico, que decide o caminho.** O container `finance-api` não
+resolve `api.bcb.gov.br` — nem o host do VPS resolve. Não é problema do
+Docker: `api.anthropic.com` resolve normalmente nos dois. Falta rodar o teste
+que separa as hipóteses:
+
+```bash
+# no servidor (VPS)
+nslookup api.bcb.gov.br 8.8.8.8
+nslookup olinda.bcb.gov.br 8.8.8.8
+```
+
+Resolvendo pelo 8.8.8.8, é o resolvedor da Hostinger, e a correção é `dns:
+[8.8.8.8, 1.1.1.1]` no serviço do `docker-compose.yml`. Falhando também, o
+caminho é o n8n buscar e gravar numa tabela — o que não muda a funcionalidade,
+só quem vai até o BCB.
+
+**O cache não é otimização, é o desenho.** IPCA e IGP-M mudam uma vez por mês.
+Buscar a cada pergunta adiciona latência e um ponto de falha sem trazer
+informação nova.
+
+**Decisões de produto ainda abertas:**
+
+- *Dólar intradiário é mesmo necessário?* Para precificar insumo importado ou
+  entender um reajuste, o fechamento resolve. Precisão de minuto interessa a
+  quem opera câmbio, e essa pessoa não consulta aqui.
+- *PTAX ou cotação de mercado?* A PTAX é a referência que o contador do cliente
+  usa — duas fontes para a mesma pergunta é o problema que já evitamos dentro
+  da plataforma.
+
+**Raspar portal de notícias foi descartado**, por dois motivos: o HTML muda numa
+reformulação qualquer e a ferramenta passa a devolver vazio ou o número errado,
+sem sintoma; e conteúdo de portal não é dado aberto para redistribuir dentro de
+produto pago.
+
+**Regra que vale desde já:** o horário da cotação entra na resposta junto com o
+valor. Mostrar câmbio dentro de uma ferramenta de gestão sugere que ele é
+acionável — se estiver atrasado e alguém fechar compra em cima, a conversa
+seguinte é ruim.
+
 **Marca branca para a agência de marketing.** Avaliada: tecnicamente é
 viável, o gargalo não é o código e sim a operação — segundo banco, segundo
 deploy, segundo conjunto de migrações manuais. **Automatizar as migrações
@@ -219,7 +308,26 @@ indicadores **nunca dependeram de IA**.
 
 ---
 
-## Pendências técnicas conhecidas
+## Pendências
+
+### 0. Repor os tetos de IA — combinado para segunda, 06/10/2026
+
+Em 02/10 os limites foram afrouxados no `.env` da API para a rodada de testes
+do assistente:
+
+- `PDCA_CHAT_LIMITE_24H=1000` → voltar para **30**
+- `IA_LIMITE_DIARIO` elevado → voltar ao valor anterior
+
+```bash
+# no servidor (VPS)
+cd /opt/finance-src/api && nano .env && docker compose up -d
+```
+
+Sem `--build`: só o ambiente muda.
+
+**Por que isto abre a lista.** Teto de gasto afrouxado não dá sintoma — tudo
+funciona melhor. Só aparece na fatura, semanas depois. É a pendência mais fácil
+de esquecer e a única que custa dinheiro todo dia em que fica esquecida. técnicas conhecidas
 
 **Node 20 no servidor, Supabase pede 22.** Avisos hoje; podem virar erro num
 `npm ci` futuro.
