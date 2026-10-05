@@ -114,12 +114,28 @@ function tratar(tipo: TipoDiagnostico) {
       const body = parsed.data as z.infer<typeof corpoFinanceiro> & { comercial?: Record<string, unknown> };
       const lead: DadosLead = body.identificacao;
 
-      // `?motor=codigo` escreve o relatório sem IA: instantâneo e sem
-      // custo. É o que a landing page de evento usa, onde o volume é
-      // alto e o público não foi qualificado. Qualquer outro valor cai no
-      // padrão do `.env` — texto inválido não vira erro, vira o
-      // comportamento de sempre.
-      const motor: MotorAnalise = req.query.motor === 'codigo' ? 'codigo' : env.MOTOR_ANALISE;
+      /* --------------------------------------------------------------
+       * Qual motor escreve este relatório
+       * --------------------------------------------------------------
+       * Esta rota serve DOIS públicos pelo mesmo endereço: o formulário
+       * do site, aberto a qualquer um, e o do painel, preenchido pelo
+       * consultor para um cliente. É o mesmo componente de formulário nos
+       * dois lugares, e a rota não tem autenticação — então não há como
+       * descobrir quem chamou. A separação precisa ser explícita.
+       *
+       * Sem `?motor`, vale `MOTOR_PUBLICO`, hoje `codigo`: é o caminho
+       * gratuito, onde resposta garantida vale mais que prosa melhor.
+       * O painel manda `?motor=ia`.
+       *
+       * O parâmetro é adivinhável, e isso é aceitável: hoje TODA chamada
+       * pública usa IA, então o padrão novo reduz a exposição em vez de
+       * aumentá-la. E o `IA_LIMITE_DIARIO` continua sendo o disjuntor.
+       */
+      const pedido = String(req.query.motor ?? '');
+      const motor: MotorAnalise =
+        pedido === 'codigo' || pedido === 'ia' || pedido === 'deepseek'
+          ? pedido
+          : env.MOTOR_PUBLICO;
 
       const entrada: Record<string, unknown> =
         tipo === 'comercial'

@@ -10,6 +10,7 @@
 import { env } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
 import { gerarAnalise } from '../../lib/claude.js';
+import { gerarAnaliseOpenAI } from '../../lib/provedor-openai.js';
 import { enviarEmail } from '../../lib/email.js';
 import { calcularRegua, type ResultadoRegua } from '../regua/regua.js';
 import { calcularReguaComercial, type ResultadoComercial } from '../regua/regua-comercial.js';
@@ -54,15 +55,26 @@ export const dependenciasReais: Dependencias = {
       : montarPromptFinanceiro(publico, entrada, regua as ResultadoRegua);
   },
 
-  analisar: async (tipo, prompt) => {
+  analisar: async (tipo, prompt, provedor = 'anthropic') => {
     // Reserva ANTES de falar com o modelo. Depois seria contabilizar o
     // que já foi gasto, que é o oposto de um teto.
     await reservarChamada();
 
+    // Quatro ramos em vez de uma variável de esquema: o financeiro e o
+    // comercial têm formatos diferentes, e unificá-los numa variável só
+    // apagaria o tipo de cada um — o TypeScript deixa de saber qual
+    // análise voltou, e o `as` que isso exigiria esconderia exatamente o
+    // erro que o esquema existe para pegar.
+    //
+    // O ESQUEMA É O MESMO NOS DOIS PROVEDORES. É ele que decide se a
+    // resposta serve, e é o que permite comparar os dois sem aceitar de
+    // um o que se recusaria do outro.
+    const gerar = provedor === 'deepseek' ? gerarAnaliseOpenAI : gerarAnalise;
+
     const { analise, consumo } =
       tipo === 'comercial'
-        ? await gerarAnalise(prompt, esquemaAnaliseComercial, extrairJson)
-        : await gerarAnalise(prompt, esquemaAnaliseFinanceira, extrairJson);
+        ? await gerar(prompt, esquemaAnaliseComercial, extrairJson)
+        : await gerar(prompt, esquemaAnaliseFinanceira, extrairJson);
 
     await registrarConsumo(consumo.entrada, consumo.saida);
 

@@ -128,6 +128,13 @@ dado numa área recebe "não há" quando a ferramenta roda.
 devolvem o valor já somado. Dois lugares calculando o mesmo número terminam
 divergindo, e aí o cliente perde a confiança nos dois.
 
+**A análise gratuita não usa IA, e a razão não é só custo.** `MOTOR_PUBLICO`
+é `codigo`: o `redator.ts` não tem rede, formato para errar, timeout nem teto
+diário. No formulário público quem espera é um prospect — se a IA estiver fora
+ou o teto tiver estourado, ele preenche tudo e não recebe nada, e lead perdido
+não volta. O painel manda `?motor=ia` e segue na Anthropic, porque o texto
+adaptado ao setor é parte do que o cliente pagante compra.
+
 **Importação lê o markdown, nunca o PDF.** O relatório de PDCA nasce como
 `relatorio.md` e só depois é renderizado. Importar o PDF é analisar a própria
 saída depois de descartar a estrutura — e o PDF impresso perde até a camada de

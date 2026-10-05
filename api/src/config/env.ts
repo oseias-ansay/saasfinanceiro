@@ -105,6 +105,20 @@ const schema = z.object({
   // isso custa mais que a conta que ele evitaria.
   IA_LIMITE_DIARIO: z.coerce.number().int().min(1).max(100000).default(60),
 
+  // --- Provedor alternativo, compatível com a API da OpenAI ---------
+  //
+  // Existe para a análise GRATUITA do site público. A ideia é segmentar
+  // custo: prospect recebe um modelo mais barato, cliente pagante recebe
+  // o melhor. Vazio por padrão — sem chave, o motor `deepseek` falha
+  // alto em vez de cair em silêncio para outro provedor.
+  DEEPSEEK_API_KEY: z.string().default(''),
+
+  // Base e modelo em variável porque trocar de provedor compatível é
+  // decisão de custo, não de deploy. Qualquer endpoint que fale o
+  // protocolo da OpenAI serve.
+  DEEPSEEK_BASE_URL: z.string().default('https://api.deepseek.com/v1'),
+  DEEPSEEK_MODEL: z.string().default('deepseek-chat'),
+
   // --- Chat do plano de ação ---------------------------------------
   //
   // Modelo próprio porque a tarefa é outra. O diagnóstico cruza quinze
@@ -141,7 +155,24 @@ const schema = z.object({
   // rota pública, `?motor=codigo` sobrescreve — é assim que o
   // diagnóstico de evento sai sem custo enquanto o do lead qualificado
   // continua com a leitura fina.
-  MOTOR_ANALISE: z.enum(['ia', 'codigo']).default('ia'),
+  MOTOR_ANALISE: z.enum(['ia', 'deepseek', 'codigo']).default('ia'),
+
+  /**
+   * Quem escreve a análise GRATUITA, pedida do site público.
+   *
+   * `codigo` por padrão, e a razão não é só custo: o `redator.ts` não
+   * falha. Sem rede, sem formato para errar, sem timeout e sem teto
+   * diário. No formulário público quem está do outro lado é um prospect
+   * — se a IA estiver fora do ar ou o teto tiver estourado, ele preenche
+   * tudo e não recebe nada. Lead perdido não volta.
+   *
+   * Resposta instantânea e garantida vale mais ali que prosa melhor. O
+   * texto adaptado ao setor continua sendo o que o cliente pagante
+   * recebe, e é parte do que ele está comprando.
+   *
+   * Mudou em 05/10/2026, depois de a análise pública passar meses na IA.
+   */
+  MOTOR_PUBLICO: z.enum(['ia', 'deepseek', 'codigo']).default('codigo'),
 
   // --- Envio das 8h ------------------------------------------------
   //

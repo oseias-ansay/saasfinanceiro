@@ -50,7 +50,21 @@ export type TipoDiagnostico = 'financeiro' | 'comercial';
  * A régua, o score e os indicadores são idênticos nos dois casos: eles
  * nunca dependeram de IA. O que muda é só a redação.
  */
-export type MotorAnalise = 'ia' | 'codigo';
+/**
+ * Quem escreve o relatório.
+ *
+ *   ia       — Anthropic. O melhor texto, e o mais caro. Cliente pagante.
+ *   deepseek — provedor compatível com OpenAI, bem mais barato. Pensado
+ *              para a análise gratuita do site público.
+ *   codigo   — `redator.ts`, sem IA. Instantâneo, R$ 0,00, texto mais
+ *              padronizado. É o concorrente que o `deepseek` precisa
+ *              vencer para justificar a chave e o dado saindo do país.
+ *
+ * O mesmo esquema Zod valida os três. Se um provedor não produzir o
+ * formato, a validação recusa — e é melhor descobrir no comparativo que
+ * no relatório do prospect.
+ */
+export type MotorAnalise = 'ia' | 'deepseek' | 'codigo';
 
 /** Quando o relatório sai. Ver o cabeçalho. */
 export const POLITICA_ENVIO: Record<TipoDiagnostico, 'imediato' | 'janela'> = {
@@ -83,10 +97,17 @@ export interface Dependencias {
     entrada: Record<string, unknown>,
   ) => ResultadoRegua | ResultadoComercial;
 
-  /** Chama o modelo e devolve a análise já validada. */
+  /**
+   * Chama o modelo e devolve a análise já validada.
+   *
+   * `provedor` escolhe qual. O padrão é a Anthropic, para não mudar o
+   * comportamento de quem já está em produção — a troca é sempre
+   * explícita, por chamada, como o `motor`.
+   */
   analisar: (
     tipo: TipoDiagnostico,
     prompt: string,
+    provedor?: 'anthropic' | 'deepseek',
   ) => Promise<AnaliseFinanceira | AnaliseComercial>;
 
   /**
@@ -230,7 +251,11 @@ export async function processarDiagnostico(
   const analise =
     motor === 'codigo'
       ? dep.redigir(tipo, regua)
-      : await dep.analisar(tipo, dep.montarPrompt(tipo, lead, entrada, regua));
+      : await dep.analisar(
+          tipo,
+          dep.montarPrompt(tipo, lead, entrada, regua),
+          motor === 'deepseek' ? 'deepseek' : 'anthropic',
+        );
 
   // ---- 3. Gravar -----------------------------------------------------
   //
