@@ -25,6 +25,7 @@
  * apresentadores.
  */
 
+import { resumirIndicadores } from './indicadores.js';
 import {
   brl,
   resumirContas,
@@ -224,6 +225,36 @@ async function ultimoDiagnostico(db: Db, tenantId: string): Promise<ResultadoFer
   };
 }
 
+/**
+ * Indicadores públicos. Único caso em que a ferramenta NÃO filtra por
+ * empresa — porque o dado não é da empresa, é do país.
+ *
+ * Lê da tabela, nunca do Banco Central na hora: ver o cabeçalho de
+ * `indicadores.service.ts`. Se a coleta estiver velha, o texto avisa em
+ * vez de esconder.
+ */
+async function indicadoresEconomicos(db: Db): Promise<ResultadoFerramenta> {
+  const { data, error } = await db
+    .from('indicadores_economicos')
+    .select('codigo, nome, referencia, valor, unidade, fonte, coletado_em')
+    .order('codigo');
+
+  if (error) throw new Error(error.message);
+
+  /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+  const linhas = ((data ?? []) as any[]).map((i) => ({
+    codigo: String(i.codigo),
+    nome: String(i.nome),
+    referencia: String(i.referencia),
+    valor: Number(i.valor ?? 0),
+    unidade: String(i.unidade ?? '%'),
+    fonte: String(i.fonte ?? ''),
+    coletado_em: String(i.coletado_em ?? ''),
+  }));
+
+  return { texto: resumirIndicadores(linhas, new Date()), linhas: linhas.length };
+}
+
 async function acoesDoPlano(db: Db, tenantId: string): Promise<ResultadoFerramenta> {
   const { data, error } = await db
     .from('vw_quadro_acoes')
@@ -290,6 +321,8 @@ export async function executar(
         return await resultadoDoMes(db, tenantId, Number(params.meses ?? 3));
       case 'ultimo_diagnostico':
         return await ultimoDiagnostico(db, tenantId);
+      case 'indicadores_economicos':
+        return await indicadoresEconomicos(db);
       case 'acoes_do_plano':
         return await acoesDoPlano(db, tenantId);
     }

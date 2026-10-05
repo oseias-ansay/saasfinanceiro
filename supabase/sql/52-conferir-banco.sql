@@ -80,7 +80,10 @@ with esperado(objeto, arquivo) as (values
 
   -- Conversa sobre o plano de ação
   ('pdca_conversas','56'), ('pdca_mensagens','56'),
-  ('vw_pdca_chat_uso','56')
+  ('vw_pdca_chat_uso','56'),
+
+  -- Indicadores econômicos
+  ('indicadores_economicos','60')
 )
 select
   x.objeto                             as faltando,

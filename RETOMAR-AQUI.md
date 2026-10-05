@@ -10,10 +10,38 @@ Depois delas, o que está no ar, o que está em avaliação e as lições.
 
 ## Pendências
 
-### 0. Repor os tetos de IA — combinado para segunda, 06/10/2026
+### 0. Tirar o Supabase do domínio pessoal — urgente
+
+Em 05/10/2026 a plataforma inteira ficou fora do ar: `oseiasansay.com.br`
+venceu, o DNS devolveu NXDOMAIN e **nenhum cliente conseguiu entrar**. O
+servidor estava perfeitamente saudável o tempo todo — todos os containers no
+ar, a API respondendo ao n8n, o site carregando. Só o login morreu, porque o
+Supabase mora nesse domínio.
+
+**O problema não foi o vencimento. Foi a dependência.** O produto é
+`businesstriage.com.br`, que continuou funcionando. O login de todos os
+clientes depende de um domínio pessoal, e isso vai se repetir todo ano.
+
+A migração, em quatro passos:
+
+1. Registro A de `supabase.businesstriage.com.br` apontando para o IP do VPS
+2. Regra do Traefik para esse host no `supabase-kong`
+3. `VITE_SUPABASE_URL` no front, e rebuild
+4. `SUPABASE_URL` no `.env` da API, e rebuild
+
+**Cuidado que não é opcional:** o Supabase guarda o próprio endereço externo
+na configuração (`API_EXTERNAL_URL` e as URLs de redirecionamento do Auth).
+Mudar só o DNS e os clientes faz o login confirmar e redirecionar para um
+domínio morto.
+
+Enquanto a migração não acontece, **a data de vencimento do domínio é um
+risco de produção**, não uma tarefa administrativa.
+
+### 1. Repor os tetos de IA — adiado para quinta, 08/10/2026
 
 Em 02/10 os limites foram afrouxados no `.env` da API para a rodada de testes
-do assistente:
+do assistente. Mantidos até 08/10 por causa das reuniões de apresentação de
+terça e quarta — teto batendo no meio de uma demonstração é o pior cenário.
 
 - `PDCA_CHAT_LIMITE_24H=1000` → voltar para **30**
 - `IA_LIMITE_DIARIO` elevado → voltar ao valor anterior
@@ -310,10 +338,38 @@ indicadores **nunca dependeram de IA**.
 
 ## Pendências
 
-### 0. Repor os tetos de IA — combinado para segunda, 06/10/2026
+### 0. Tirar o Supabase do domínio pessoal — urgente
+
+Em 05/10/2026 a plataforma inteira ficou fora do ar: `oseiasansay.com.br`
+venceu, o DNS devolveu NXDOMAIN e **nenhum cliente conseguiu entrar**. O
+servidor estava perfeitamente saudável o tempo todo — todos os containers no
+ar, a API respondendo ao n8n, o site carregando. Só o login morreu, porque o
+Supabase mora nesse domínio.
+
+**O problema não foi o vencimento. Foi a dependência.** O produto é
+`businesstriage.com.br`, que continuou funcionando. O login de todos os
+clientes depende de um domínio pessoal, e isso vai se repetir todo ano.
+
+A migração, em quatro passos:
+
+1. Registro A de `supabase.businesstriage.com.br` apontando para o IP do VPS
+2. Regra do Traefik para esse host no `supabase-kong`
+3. `VITE_SUPABASE_URL` no front, e rebuild
+4. `SUPABASE_URL` no `.env` da API, e rebuild
+
+**Cuidado que não é opcional:** o Supabase guarda o próprio endereço externo
+na configuração (`API_EXTERNAL_URL` e as URLs de redirecionamento do Auth).
+Mudar só o DNS e os clientes faz o login confirmar e redirecionar para um
+domínio morto.
+
+Enquanto a migração não acontece, **a data de vencimento do domínio é um
+risco de produção**, não uma tarefa administrativa.
+
+### 1. Repor os tetos de IA — adiado para quinta, 08/10/2026
 
 Em 02/10 os limites foram afrouxados no `.env` da API para a rodada de testes
-do assistente:
+do assistente. Mantidos até 08/10 por causa das reuniões de apresentação de
+terça e quarta — teto batendo no meio de uma demonstração é o pior cenário.
 
 - `PDCA_CHAT_LIMITE_24H=1000` → voltar para **30**
 - `IA_LIMITE_DIARIO` elevado → voltar ao valor anterior

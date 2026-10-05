@@ -72,6 +72,7 @@ const PARAMETROS: Record<NomeFerramenta, Record<string, unknown>> = {
     required: [],
   },
   ultimo_diagnostico: SEM_PARAMETRO,
+  indicadores_economicos: SEM_PARAMETRO,
   acoes_do_plano: SEM_PARAMETRO,
 };
 

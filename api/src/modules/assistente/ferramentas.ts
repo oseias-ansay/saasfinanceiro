@@ -163,6 +163,16 @@ export const FERRAMENTAS = {
     parametros: z.object({}),
   },
 
+  indicadores_economicos: {
+    descricao:
+      'Indicadores econômicos públicos do Brasil, com a data de referência de ' +
+      'cada um: IPCA, IGP-M, taxa Selic, cotação do dólar e do euro (PTAX do ' +
+      'Banco Central). Use quando perguntarem sobre inflação, índice de reajuste ' +
+      'de contrato ou aluguel, juros, taxa básica, câmbio, dólar ou euro. ' +
+      'Estes números NÃO são da empresa — são do país.',
+    parametros: z.object({}),
+  },
+
   acoes_do_plano: {
     descricao:
       'As ações do plano de ação em vigor, com responsável, prazo e situação. Use ' +

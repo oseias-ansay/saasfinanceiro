@@ -3,12 +3,17 @@ import { env } from './config/env.js';
 import { logger } from './lib/logger.js';
 import { iniciarVigia, pararVigia } from './modules/monitor/monitor.agenda.js';
 import { iniciarFila, pararFila } from './modules/diagnosticos/fila.agenda.js';
+import {
+  iniciarIndicadores,
+  pararIndicadores,
+} from './modules/assistente/indicadores.service.js';
 
 const app = createApp();
 const server = app.listen(env.PORT, () => {
   logger.info(`API financeira ouvindo na porta ${env.PORT} (${env.NODE_ENV})`);
   iniciarVigia();
   iniciarFila();
+  iniciarIndicadores();
 });
 
 // Encerramento limpo: espera as requisições em voo antes de morrer.
@@ -17,6 +22,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     logger.info(`${signal} recebido, encerrando...`);
     pararVigia();
     pararFila();
+    pararIndicadores();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(1), 10_000).unref();
   });
