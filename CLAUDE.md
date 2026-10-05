@@ -135,6 +135,12 @@ ou o teto tiver estourado, ele preenche tudo e não recebe nada, e lead perdido
 não volta. O painel manda `?motor=ia` e segue na Anthropic, porque o texto
 adaptado ao setor é parte do que o cliente pagante compra.
 
+**E relatório escrito por código sai na hora.** A janela das 8h do financeiro
+existe pelo link de "segurar" no aviso interno — revisão de um texto que um
+modelo escreveu. Sem modelo não há o que revisar, e segurar até amanhã um
+relatório pronto em milissegundos custa a atenção do prospect. Ver
+`politicaDeEnvio`.
+
 **Importação lê o markdown, nunca o PDF.** O relatório de PDCA nasce como
 `relatorio.md` e só depois é renderizado. Importar o PDF é analisar a própria
 saída depois de descartar a estrutura — e o PDF impresso perde até a camada de

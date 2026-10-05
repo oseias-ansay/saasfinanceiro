@@ -15,6 +15,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   POLITICA_ENVIO,
+  politicaDeEnvio,
   processarDiagnostico,
   type Dependencias,
   type DadosLead,
@@ -98,6 +99,26 @@ describe('as duas políticas são explícitas', () => {
   it('comercial sai na hora, financeiro espera a janela', () => {
     assert.equal(POLITICA_ENVIO.comercial, 'imediato');
     assert.equal(POLITICA_ENVIO.financeiro, 'janela');
+  });
+
+  /**
+   * A janela existe pelo link de "segurar": um texto escrito por um
+   * modelo sobre as finanças de um desconhecido passa por um olho antes
+   * de chegar nele.
+   *
+   * Com o motor `codigo` não há modelo — o texto sai do `redator.ts`, que
+   * é código com testes. A revisão deixa de proteger contra algo e passa
+   * a custar a atenção do prospect, que é o que vale num lead.
+   */
+  it('relatório escrito por código sai na hora, inclusive o financeiro', () => {
+    assert.equal(politicaDeEnvio('financeiro', 'codigo'), 'imediato');
+    assert.equal(politicaDeEnvio('comercial', 'codigo'), 'imediato');
+  });
+
+  it('escrito por modelo mantém a janela do financeiro', () => {
+    assert.equal(politicaDeEnvio('financeiro', 'ia'), 'janela');
+    assert.equal(politicaDeEnvio('financeiro', 'deepseek'), 'janela');
+    assert.equal(politicaDeEnvio('comercial', 'ia'), 'imediato');
   });
 });
 

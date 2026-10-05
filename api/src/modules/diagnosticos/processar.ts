@@ -66,11 +66,42 @@ export type TipoDiagnostico = 'financeiro' | 'comercial';
  */
 export type MotorAnalise = 'ia' | 'deepseek' | 'codigo';
 
-/** Quando o relatório sai. Ver o cabeçalho. */
+/** Quando o relatório sai, pelo TIPO. Ver o cabeçalho. */
 export const POLITICA_ENVIO: Record<TipoDiagnostico, 'imediato' | 'janela'> = {
   comercial: 'imediato',
   financeiro: 'janela',
 };
+
+/**
+ * Quando o relatório sai, considerando também QUEM o escreveu.
+ *
+ * =====================================================================
+ * POR QUE O MOTOR ENTRA NESTA DECISÃO
+ * =====================================================================
+ * A janela das 8h existe pelo link de "segurar" no aviso interno: um
+ * texto sobre as finanças de um desconhecido, escrito por um modelo,
+ * passa por um olho antes de chegar nele.
+ *
+ * Esse controle protege contra o que o modelo pode escrever. Com o motor
+ * `codigo`, não há modelo: o texto sai do `redator.ts`, que é código com
+ * testes e não pode surpreender ninguém. A revisão deixa de proteger
+ * contra algo e passa a custar a única coisa que vale num lead — a
+ * atenção dele agora.
+ *
+ * Então: escrito por código sai na hora; escrito por modelo espera a
+ * janela. O tipo continua mandando no resto.
+ *
+ * Mudou em 05/10/2026, junto com a análise gratuita passar ao `redator`.
+ * Antes disso o financeiro esperava sempre, e o prospect recebia no dia
+ * seguinte um relatório que ficou pronto em milissegundos.
+ */
+export function politicaDeEnvio(
+  tipo: TipoDiagnostico,
+  motor: MotorAnalise,
+): 'imediato' | 'janela' {
+  if (motor === 'codigo') return 'imediato';
+  return POLITICA_ENVIO[tipo];
+}
 
 export interface DadosLead {
   razao_social?: string | null;
@@ -210,7 +241,7 @@ export async function processarDiagnostico(
   motor: MotorAnalise = 'ia',
 ): Promise<ResultadoDiagnostico> {
   const avisar = dep.aviso ?? (() => {});
-  const politica = POLITICA_ENVIO[tipo];
+  const politica = politicaDeEnvio(tipo, motor);
 
   const r: ResultadoDiagnostico = {
     ok: false,
