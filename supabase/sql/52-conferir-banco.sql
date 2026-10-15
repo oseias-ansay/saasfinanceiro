@@ -83,7 +83,10 @@ with esperado(objeto, arquivo) as (values
   ('vw_pdca_chat_uso','56'),
 
   -- Indicadores econômicos
-  ('indicadores_economicos','60')
+  ('indicadores_economicos','60'),
+
+  -- Movimento diário
+  ('formas_recebimento','61'), ('movimentos_diarios','61')
 )
 select
   x.objeto                             as faltando,
@@ -131,7 +134,8 @@ with esperado(tabela, coluna, arquivo) as (values
   ('pdca_mensagens',        'tokens_cache', '56'),
   ('planos_acao',           'origem',       '58'),
   ('planos_acao',           'diagnostico_competencia', '58'),
-  ('pdca_mensagens',        'ferramentas',  '59')
+  ('pdca_mensagens',        'ferramentas',  '59'),
+  ('transactions',          'movimento_id', '61')
 )
 select
   x.tabela || '.' || x.coluna     as faltando,

@@ -37,6 +37,45 @@ domínio morto.
 Enquanto a migração não acontece, **a data de vencimento do domínio é um
 risco de produção**, não uma tarefa administrativa.
 
+### 0.5. Indicadores econômicos — escrito, não funcionando
+
+Parado em 05/10/2026. O assistente não devolveu a cotação do dólar quando
+pedida. Tudo está escrito e testado (769 testes), falta descobrir onde parou.
+
+**Comece por estas duas saídas, nesta ordem:**
+
+```sql
+select codigo, nome, referencia, valor, unidade, falhas, ultimo_erro, coletado_em
+  from public.indicadores_economicos order by codigo;
+```
+
+```bash
+# no servidor (VPS)
+docker exec finance-api node -e "fetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.1/dados/ultimos/1?formato=json').then(r=>r.text()).then(t=>console.log('OK',t)).catch(e=>console.log('ERRO',e.cause?.code??e.message))"
+```
+
+O que cada resultado significa:
+
+- tabela não existe → **SQL 60 não aplicado**
+- vazia → deploy não entrou, ou container não recriado (`--force-recreate`)
+- quatro linhas, sem `dolar` → a série 1 falhou; ver `ultimo_erro`
+- cinco linhas com `dolar` → o dado está lá, e o problema é o modelo não
+  escolher a ferramenta. Conserto na descrição, não no código
+
+**Suspeita principal:** a série **1** do dólar nunca foi verificada. A 433 do
+IPCA foi testada e responde; a 1 entrou de memória. Se vier vazia ou com outro
+dado, o código está errado em `SERIES` de `indicadores.ts`.
+
+**O que já foi provado:** o container resolve e alcança `api.bcb.gov.br` (o
+bloqueio de DNS de 02/10 era do próprio servidor e passou), e a leitura do
+formato está testada contra a resposta real.
+
+**Defeito achado e corrigido no caminho, que vale lembrar:** o BCB usa ponto
+decimal em algumas séries (`"-0.32"`) e vírgula em outras. A primeira versão
+removia os pontos como separador de milhar e transformava −0,32% em **−32%** —
+cem vezes maior e perfeitamente plausível. Só apareceu porque o teste usou a
+resposta real da API, não um exemplo inventado.
+
 ### 1. Repor os tetos de IA — adiado para quinta, 08/10/2026
 
 Em 02/10 os limites foram afrouxados no `.env` da API para a rodada de testes
@@ -364,6 +403,45 @@ domínio morto.
 
 Enquanto a migração não acontece, **a data de vencimento do domínio é um
 risco de produção**, não uma tarefa administrativa.
+
+### 0.5. Indicadores econômicos — escrito, não funcionando
+
+Parado em 05/10/2026. O assistente não devolveu a cotação do dólar quando
+pedida. Tudo está escrito e testado (769 testes), falta descobrir onde parou.
+
+**Comece por estas duas saídas, nesta ordem:**
+
+```sql
+select codigo, nome, referencia, valor, unidade, falhas, ultimo_erro, coletado_em
+  from public.indicadores_economicos order by codigo;
+```
+
+```bash
+# no servidor (VPS)
+docker exec finance-api node -e "fetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.1/dados/ultimos/1?formato=json').then(r=>r.text()).then(t=>console.log('OK',t)).catch(e=>console.log('ERRO',e.cause?.code??e.message))"
+```
+
+O que cada resultado significa:
+
+- tabela não existe → **SQL 60 não aplicado**
+- vazia → deploy não entrou, ou container não recriado (`--force-recreate`)
+- quatro linhas, sem `dolar` → a série 1 falhou; ver `ultimo_erro`
+- cinco linhas com `dolar` → o dado está lá, e o problema é o modelo não
+  escolher a ferramenta. Conserto na descrição, não no código
+
+**Suspeita principal:** a série **1** do dólar nunca foi verificada. A 433 do
+IPCA foi testada e responde; a 1 entrou de memória. Se vier vazia ou com outro
+dado, o código está errado em `SERIES` de `indicadores.ts`.
+
+**O que já foi provado:** o container resolve e alcança `api.bcb.gov.br` (o
+bloqueio de DNS de 02/10 era do próprio servidor e passou), e a leitura do
+formato está testada contra a resposta real.
+
+**Defeito achado e corrigido no caminho, que vale lembrar:** o BCB usa ponto
+decimal em algumas séries (`"-0.32"`) e vírgula em outras. A primeira versão
+removia os pontos como separador de milhar e transformava −0,32% em **−32%** —
+cem vezes maior e perfeitamente plausível. Só apareceu porque o teste usou a
+resposta real da API, não um exemplo inventado.
 
 ### 1. Repor os tetos de IA — adiado para quinta, 08/10/2026
 

@@ -9,6 +9,7 @@ import { env } from './config/env.js';
 import { logger } from './lib/logger.js';
 import { errorHandler, notFoundHandler } from './middlewares/error-handler.js';
 import { transactionsRouter } from './modules/transactions/transactions.routes.js';
+import { movimentoRouter } from './modules/transactions/movimento.routes.js';
 import { reportsRouter } from './modules/reports/reports.routes.js';
 import { equilibrioRouter } from './modules/precificacao/equilibrio.routes.js';
 import { treinamentoRouter } from './modules/treinamento/treinamento.routes.js';
@@ -63,6 +64,7 @@ export function createApp() {
   app.use('/api/v1', onboardingRouter);
   app.use('/api/v1/admin', adminRouter);
   app.use('/api/v1/transactions', transactionsRouter);
+  app.use('/api/v1/movimento', movimentoRouter);
   app.use('/api/v1/reports', reportsRouter);
   app.use('/api/v1/equilibrio', equilibrioRouter);
   app.use('/api/v1/treinamento', treinamentoRouter);

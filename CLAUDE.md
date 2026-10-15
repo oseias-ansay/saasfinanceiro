@@ -141,6 +141,19 @@ modelo escreveu. Sem modelo não há o que revisar, e segurar até amanhã um
 relatório pronto em milissegundos custa a atenção do prospect. Ver
 `politicaDeEnvio`.
 
+**Venda não é recebimento.** O movimento diário lança a venda com
+`competence_date` no dia e `due_date` no dia em que o dinheiro entra, conforme
+o prazo da forma de recebimento (`formas_recebimento.prazo_dias`). Cartão de
+crédito a 30 dias entra como conta a receber, não como caixa. Tratar tudo como
+recebido inflaria a cobertura de caixa e encurtaria o PMR — os dois indicadores
+que sustentam o diagnóstico. Ver `modules/transactions/movimento.ts`.
+
+**O movimento diário produz `transactions`, não um modelo paralelo.** Extrato,
+DRE, contas, prazos médios, diagnóstico e assistente continuam lendo o que já
+liam. Salvar o mesmo dia substitui — há um registro por empresa por data, e os
+lançamentos nascem amarrados a ele com `on delete cascade`. Lançamento manual
+tem `movimento_id` nulo e fica fora do alcance do formulário.
+
 **Importação lê o markdown, nunca o PDF.** O relatório de PDCA nasce como
 `relatorio.md` e só depois é renderizado. Importar o PDF é analisar a própria
 saída depois de descartar a estrutura — e o PDF impresso perde até a camada de
