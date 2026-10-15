@@ -81,6 +81,50 @@ movimentoRouter.get('/formas', async (req, res, next) => {
   }
 });
 
+/**
+ * Cria as formas padrão para quem não tem nenhuma.
+ *
+ * Existe porque a tela sem formas é um beco sem saída: ela informa que
+ * não há e não oferece saída, e a empresa criada depois do SQL 61 — ou
+ * que estava inativa quando ele rodou — cai nele.
+ *
+ * Idempotente: se já houver formas, não faz nada e devolve as que
+ * existem. Clicar duas vezes não duplica.
+ *
+ * Os prazos são os usuais do varejo e são SUGESTÃO. A tela avisa para
+ * conferir com a adquirente do cliente — errar o prazo corrompe o PMR e
+ * a cobertura de caixa a partir do primeiro lançamento.
+ */
+movimentoRouter.post('/formas/padrao', ESCREVE, async (req, res, next) => {
+  try {
+    const tenant = req.tenantId!;
+    const existentes = await formasDaEmpresa(req, tenant);
+
+    if (existentes.length > 0) {
+      return res.json({ data: existentes, criadas: 0 });
+    }
+
+    const padrao = [
+      { nome: 'Dinheiro', prazo_dias: 0, ordem: 10 },
+      { nome: 'Pix', prazo_dias: 0, ordem: 20 },
+      { nome: 'Cartão de débito', prazo_dias: 1, ordem: 30 },
+      { nome: 'Cartão de crédito', prazo_dias: 30, ordem: 40 },
+      { nome: 'A prazo', prazo_dias: 30, ordem: 50 },
+    ];
+
+    const { error } = await db(req)
+      .from('formas_recebimento')
+      .insert(padrao.map((f) => ({ ...f, tenant_id: tenant })) as never);
+
+    if (error) throw fromPostgrest(error);
+
+    logger.info({ tenant }, 'Formas de recebimento padrão criadas');
+    res.json({ data: await formasDaEmpresa(req, tenant), criadas: padrao.length });
+  } catch (e) {
+    next(e);
+  }
+});
+
 const formaSchema = z.object({
   nome: z.string().trim().min(2).max(40),
   /**
