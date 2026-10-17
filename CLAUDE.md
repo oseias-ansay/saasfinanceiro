@@ -8,9 +8,15 @@ operada por uma consultoria. Dois repositórios:
 
 ## Como trabalhar aqui
 
-**Teste antes de dar por pronto.** `cd api && npm test` roda a suíte (613 testes,
+**Teste antes de dar por pronto.** `cd api && npm test` roda a suíte (848 testes,
 node:test sobre o `dist`). `npx tsc --noEmit` para o typecheck. Os dois precisam
 passar; a suíte já pegou erros meus várias vezes.
+
+**Módulo puro não importa `config/env.js`.** Importação no topo obriga o teste
+a ter todas as variáveis de ambiente só para exercitar uma função que não fala
+com ninguém — e a suíte quebra pedindo `SUPABASE_SERVICE_ROLE_KEY`. Quando o
+mesmo arquivo tem a parte pura e a chamada de rede, o `env` entra por
+`await import()` dentro da função. Ver `boletoVisao.ts`.
 
 **A lógica de negócio fica em módulo puro, com teste.** O padrão do projeto:
 `api/src/modules/precificacao/*.ts` são funções puras (`calcularGiro`,
@@ -75,6 +81,20 @@ cd /var/www/bt && git pull && npm ci && npm run build
 
 Se o build Docker vier todo em `CACHED` e o container disser "Running" em vez de
 "Started", o `git pull` não trouxe nada — confira o commit.
+
+**`--build` e `--force-recreate` resolvem problemas diferentes, e confundir os
+dois custa uma hora.**
+
+- **Código novo** → `docker compose up -d --build`. Sem `--build`, o Compose
+  sobe o container a partir da imagem antiga e o código novo não entra. O
+  sintoma é 404 numa rota que existe no repositório.
+- **Só o `.env` mudou** → `docker compose up -d --force-recreate`. O `--build`
+  aqui é inútil: a imagem não mudou, o que precisa recarregar é o ambiente.
+- **Na dúvida, os dois**: `docker compose up -d --build --force-recreate`.
+
+Aconteceu em 15/10/2026 com as rotas do movimento diário: `git pull` trouxe o
+código, `--force-recreate` recriou o container a partir da imagem velha, e a
+rota respondeu 404 por meia hora.
 
 ## Armadilhas conhecidas
 
@@ -153,6 +173,73 @@ DRE, contas, prazos médios, diagnóstico e assistente continuam lendo o que já
 liam. Salvar o mesmo dia substitui — há um registro por empresa por data, e os
 lançamentos nascem amarrados a ele com `on delete cascade`. Lançamento manual
 tem `movimento_id` nulo e fica fora do alcance do formulário.
+
+**Na captura de boleto, o modelo só transcreve dígitos.** Ele devolve a linha
+digitável e nada mais — não lê valor, não lê data. A razão não é custo: a
+linha tem dígito verificador, então um erro de transcrição é **detectável** e
+`lerBoleto` recusa. Se o modelo lesse "R$ 1.247,80" e devolvesse 124.78, nada
+no sistema teria como saber, e a empresa pagaria um décimo da conta. Valor e
+vencimento saem da aritmética, em `modules/transactions/boleto.ts`. A
+instrução que proíbe o modelo de ler valor e data tem teste de contrato.
+
+**E nada vira lançamento sozinho.** A captura grava como `pendente`; o
+`transactions` nasce quando uma pessoa confirma. Automatizar a leitura
+economiza digitação; automatizar a confirmação entregaria ao modelo a decisão
+de quanto a empresa paga. Na tela, valor e vencimento lidos do código
+aparecem como **texto, não como campo** — quem discorda descarta e confere o
+papel, não sobrescreve um número que passou por dígito verificador.
+
+**Pagar o mesmo boleto duas vezes é impedido por índice, não por consulta.**
+`boletos_sem_repetir_idx`, no SQL 62. A consulta na rota existe só para a
+mensagem ser compreensível; a garantia é do banco, porque aplicação erra em
+corrida.
+
+**No boleto por e-mail, quem diz de qual empresa é o boleto é o token do
+destinatário — nunca o remetente.** Cada empresa tem um endereço
+`boletos+TOKEN@dominio` (SQL 63), e o token resolve o `tenant_id`. O `From` é
+trivial de falsificar e nem resolve o caso real: fornecedor que encaminha
+boleto não é usuário de empresa nenhuma. O corpo do webhook **não tem campo de
+empresa**, mesma regra das ferramentas do assistente, e há teste que varre o
+schema procurando `tenant|empresa|cliente`. Sem token, com token desconhecido
+ou com dois tokens, não grava nada.
+
+**O endereço de entrada é uma credencial, e o aviso na tela faz parte da
+segurança.** Quem souber o endereço põe boleto na fila daquela empresa — é o
+que um endereço de e-mail faz. O teto do dano é lixo na fila, porque nada vira
+`transactions` sem confirmação. Mas há um ataque que o lixo não cobre, e é a
+fraude mais comum do Brasil: código com DV perfeito, valor plausível,
+**beneficiário trocado**. A leitura do código não protege disso. Por isso
+`origem` e `remetente` são colunas, a tela destaca boleto de e-mail com borda
+e pergunta própria, e o endereço é rotacionável.
+
+**O webhook de e-mail responde 200 para e-mail que não serve.** Spam, token
+revogado, anexo que não é boleto: `gravados: 0` com o motivo. Erro faria o
+fluxo IMAP reentregar para sempre um e-mail que nunca vai dar em nada. Erro de
+verdade (banco ou modelo fora) continua 5xx, porque ali reentregar é o certo.
+E `23505` da trava de duplicado é esperado, não defeito — é o que torna a rota
+segura de rechamar.
+
+**PDF entra como `document`, não como `image`.** Boleto por e-mail é quase
+sempre PDF, e PDF é o caso mais FÁCIL: tem camada de texto, a linha digitável
+está lá como caractere. Mandar PDF como imagem faz a API recusar, e o sintoma
+chega ao cliente como "não consegui ler" — indistinguível de foto ruim. Ver
+`blocoDoArquivo`, com teste. HEIC fica fora da leitura mas é aceito no bucket:
+o arquivo guardado é o que permite digitar a linha sem fotografar de novo.
+
+**A triagem de anexos é no módulo puro, não no n8n.** E-mail de banco vem com
+logo, ícone de assinatura e `.ics`. Cada anexo mandado ao modelo custa
+dinheiro, e PNG de 3 KB nunca é boleto. Filtrar nos dois lugares cria duas
+regras que divergem, e a do n8n é a que ninguém testa. Ver `triarAnexos` — PDF
+vai na frente de imagem de propósito.
+
+**O fator de vencimento tem duas bases, e elas não se contam igual.** A antiga
+(07/10/1997) é fator **zero**; a nova (22/02/2025) é fator **mil**, porque a
+contagem reiniciou em 1000. Aplicar o `-1000` nas duas desloca todo boleto do
+ciclo antigo em 2,7 anos — e o erro é invisível, porque a data errada cai fora
+da janela de sanidade e a função devolve nulo: o sintoma é "não consigo ler
+este boleto", nunca uma data errada. Conferido contra exemplos publicados em
+15/10/2026; há teste com eles, e é o único teste do arquivo que não depende
+do nosso próprio código.
 
 **Importação lê o markdown, nunca o PDF.** O relatório de PDCA nasce como
 `relatorio.md` e só depois é renderizado. Importar o PDF é analisar a própria

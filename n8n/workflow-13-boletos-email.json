@@ -1,0 +1,87 @@
+{
+  "name": "13 · Boletos por e-mail (IMAP)",
+  "nodes": [
+    {
+      "parameters": {
+        "mailbox": "INBOX",
+        "postProcessAction": "read",
+        "format": "resolved",
+        "options": {
+          "allowUnauthorizedCerts": false,
+          "customEmailConfig": "[\"UNSEEN\"]"
+        }
+      },
+      "id": "ler-a-caixa",
+      "name": "Ler a caixa",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "credentials": {
+        "imap": {
+          "id": "CONFIGURE-A-CREDENCIAL-IMAP",
+          "name": "Caixa de boletos"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Monta o corpo que a API espera, com os anexos em base64.\n//\n// O IMAP do n8n entrega os anexos em `binary`, com chaves\n// `attachment_0`, `attachment_1`... Cada uma tem `data` (já em base64),\n// `mimeType` e `fileName`.\n//\n// NÃO filtra nada aqui. A triagem — tipo, tamanho, PDF antes de imagem —\n// está em `boletoEmail.ts`, com teste. Filtrar nos dois lugares cria\n// duas regras que divergem, e a daqui é a que ninguém testa.\n\nconst saida = [];\n\nfor (const item of $input.all()) {\n  const j = item.json;\n  const bin = item.binary ?? {};\n\n  const anexos = Object.keys(bin).map((chave) => ({\n    nome: bin[chave].fileName ?? chave,\n    mime: bin[chave].mimeType ?? 'application/octet-stream',\n    base64: bin[chave].data,\n  }));\n\n  // E-mail sem anexo nenhum nem chega a ser postado: é propaganda do\n  // banco, aviso de privacidade, resposta automática. Uma chamada por\n  // e-mail desses seria custo sem nenhuma chance de resultado.\n  if (anexos.length === 0) continue;\n\n  saida.push({\n    json: {\n      // O cabeçalho inteiro, como veio. A API extrai o token dele.\n      para: String(j.to ?? ''),\n      cc: String(j.cc ?? ''),\n      de: String(j.from ?? ''),\n      assunto: String(j.subject ?? ''),\n      anexos,\n    },\n  });\n}\n\nreturn saida;"
+      },
+      "id": "montar-o-corpo",
+      "name": "Montar o corpo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api-financeiro.businesstriage.com.br/api/v1/webhooks/n8n/boletos",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-n8n-secret",
+              "value": "COLE-AQUI-O-N8N_WEBHOOK_SECRET"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "mandar-para-a-api",
+      "name": "Mandar para a API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "content": "## Boletos por e-mail\n\nLê a caixa, manda os anexos para a API, e a API decide o resto.\n\n**O token no destinatário é que diz de qual empresa é o boleto.** O remetente não serve para isso — `From` é falsificável, e o fornecedor que encaminha o boleto não é usuário de empresa nenhuma.\n\n**Este fluxo não filtra anexo.** A triagem está em `boletoEmail.ts`, com teste. Filtrar aqui também criaria duas regras divergindo, e a daqui é a que ninguém testa.\n\n**Marcar como lido é o controle de reentrega.** `postProcessAction: read` + busca por `UNSEEN`. Se a API falhar, o e-mail fica não-lido e volta na próxima rodada.\n\n**A API responde 200 mesmo para e-mail que não serve** (spam, token revogado, sem anexo legível), de propósito: erro faria este fluxo reentregar para sempre um e-mail que nunca vai dar em nada.\n\n**Timeout de 120s** porque cada anexo é uma leitura por modelo. E-mail com três anexos demora.\n\n### Antes de ativar\n\n1. Credencial IMAP da caixa que recebe (`boletos@...`)\n2. O `x-n8n-secret` no nó da API\n3. `BOLETO_EMAIL_DOMINIO` no `.env` da API tem que ser o domínio DESTA caixa — se divergir, a tela mostra ao cliente um endereço que ninguém lê, e o sintoma é silêncio total\n4. A caixa precisa aceitar subendereçamento (`boletos+token@`). Se o provedor não aceitar, use um catch-all em subdomínio\n\n### Conferir que funcionou\n\n```sql\nselect origem, remetente, valor, vencimento, criado_em\n  from boletos_capturados\n where origem = 'email'\n order by criado_em desc limit 10;\n```",
+        "height": 720,
+        "width": 440
+      },
+      "id": "leia-me",
+      "name": "Leia-me",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [940, 120]
+    }
+  ],
+  "connections": {
+    "Ler a caixa": {
+      "main": [[{ "node": "Montar o corpo", "type": "main", "index": 0 }]]
+    },
+    "Montar o corpo": {
+      "main": [[{ "node": "Mandar para a API", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}

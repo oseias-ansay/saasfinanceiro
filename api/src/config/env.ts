@@ -224,6 +224,18 @@ const schema = z.object({
   // Quinze arquivos numa tarde são um evento, não quinze.
   CREDITO_AVISO_INTERVALO_MIN: z.coerce.number().int().min(0).max(1440).default(60),
 
+  // O domínio da caixa que recebe boleto por e-mail.
+  //
+  // A API monta o endereço de cada empresa como
+  // `boletos+TOKEN@<este domínio>` e devolve para a tela mostrar.
+  //
+  // Fica em configuração, e não no código, porque o endereço depende de
+  // qual caixa o fluxo do n8n está lendo de verdade. Com o valor errado
+  // aqui, a tela mostra ao cliente um endereço que ninguém lê — e o
+  // sintoma é o pior possível: o cliente encaminha o boleto, nada
+  // aparece, e não há erro em lugar nenhum.
+  BOLETO_EMAIL_DOMINIO: z.string().default('businesstriage.com.br'),
+
   // Ligar o relógio interno que roda a verificação.
   //
   // Desligado em desenvolvimento de propósito: cada `npm run dev` na sua

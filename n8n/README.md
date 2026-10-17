@@ -13,6 +13,38 @@ três endpoints de webhook, não ao banco inteiro.
 |---|---|---|
 | **01 — Gerar Recorrentes** | Todo dia, 03:00 | Materializa as próximas parcelas de aluguel, salários, assinaturas |
 | **02 — Alerta Diário** | Dias úteis, 08:00 | E-mail ao gestor + notificação in-app com vencimentos, atrasos e alerta de caixa negativo |
+| **13 — Boletos por e-mail** | A cada execução do IMAP | Lê a caixa de boletos, manda os anexos para a API, que identifica a empresa pelo token do destinatário |
+
+> **Esta tabela está incompleta.** Os fluxos 05 a 12 existem como arquivo neste
+> diretório e não foram registrados aqui conforme nasceram. Ver os `LEIA-ME-*.md`
+> e os próprios JSONs. Vale consertar quando alguém mexer no índice.
+
+---
+
+## Fluxo 13 — boletos por e-mail
+
+Arquivo: `workflow-13-boletos-email.json`. O **sticky note dentro do fluxo** tem
+o passo a passo; o essencial para decidir se mexe nele:
+
+**Quem identifica a empresa é o token no endereço de destino**
+(`boletos+TOKEN@dominio`), nunca o remetente. O `From` é falsificável e não
+resolve o caso real — fornecedor que encaminha boleto não é usuário de empresa
+nenhuma.
+
+**Três coisas precisam concordar, ou o sintoma é silêncio:** a caixa que a
+credencial IMAP lê, o `BOLETO_EMAIL_DOMINIO` no `.env` da API, e o
+subendereçamento aceito pelo provedor. Se divergirem, a tela mostra ao cliente
+um endereço que ninguém lê — ele encaminha o boleto, nada aparece, e **não há
+erro em lugar nenhum**. Confira os três juntos antes de ativar.
+
+**A API responde 200 para e-mail que não serve.** Spam, token revogado, anexo
+que não é boleto: tudo volta `gravados: 0` com o motivo. É de propósito — erro
+faria este fluxo reentregar para sempre um e-mail que nunca vai dar em nada.
+Erro de verdade (banco ou modelo fora) continua 5xx, e aí reentregar é o certo.
+
+**Nenhum boleto vira conta a pagar por este caminho.** Ele só entra na fila de
+conferência. Boleto por e-mail que se lançasse sozinho seria canal aberto para
+a fraude mais comum do Brasil: código perfeito, beneficiário trocado.
 
 ---
 

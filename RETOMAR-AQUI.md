@@ -10,6 +10,61 @@ Depois delas, o que está no ar, o que está em avaliação e as lições.
 
 ## Pendências
 
+### 0 (bis). Conferir a captura de boleto com papel real
+
+Escrita e testada em 15/10/2026 (848 testes). Foto, PDF, linha digitada e
+e-mail. **Falta um boleto de verdade antes de soltar para cliente.**
+
+**Para o e-mail funcionar, três coisas precisam concordar** — e se divergirem o
+sintoma é silêncio total, sem erro em lugar nenhum: a caixa que a credencial
+IMAP do fluxo 13 lê, o `BOLETO_EMAIL_DOMINIO` no `.env` da API, e o
+subendereçamento (`boletos+token@`) aceito pelo provedor. Confira os três
+juntos; se a Hostinger não aceitar subendereçamento, o caminho é um catch-all
+em subdomínio. Com isso errado, o cliente encaminha o boleto, nada aparece na
+fila, e nem log nem tela acusam nada.
+
+Teste do e-mail ponta a ponta, depois de ativar o fluxo: abra
+`/financeiro/boletos`, copie o endereço da empresa, encaminhe para ele um
+e-mail com um boleto em PDF, e confira:
+
+```sql
+select origem, remetente, valor, vencimento, criado_em
+  from boletos_capturados where origem = 'email'
+ order by criado_em desc limit 5;
+```
+
+Já conferido por fonte externa: o **fator de vencimento**. Os exemplos
+resolvidos publicados batem, e a prova mais forte é que `07/10/1997 + 9999
+dias` dá exatamente `21/02/2025`, o dia documentado do estouro do campo. Há
+teste com esses casos em `boleto.test.ts`, e foi conferindo isso que apareceu
+um defeito real: a base antiga estava deslocada em 1000 dias, e boleto do
+ciclo antigo voltava ilegível.
+
+**Não** conferido: os dígitos verificadores (módulo 10 e módulo 11) e o
+desembaralhamento dos campos. Os exemplos do teste são montados pelos nossos
+próprios algoritmos — provam coerência interna, não conformidade com a
+FEBRABAN. Erro sistemático passaria, porque o mesmo erro monta e confere o
+exemplo.
+
+**Como fechar em cinco minutos:** pegue um boleto qualquer, mesmo já pago,
+abra `/financeiro/boletos`, clique em "Digitar a linha" e compare o valor e o
+vencimento da tela com o impresso no papel.
+
+Faça com dois: um bancário (47 dígitos) e uma conta de concessionária (48
+dígitos, começa com 8). O segundo tem que mostrar o vencimento **em branco,
+com aviso** — aquele formato não codifica data. Se mostrar uma data, há
+defeito.
+
+E uma decisão que vale saber que foi tomada: **o endereço de entrada por
+e-mail é uma credencial.** Quem o souber coloca boleto na fila daquela empresa
+— é o que um endereço de e-mail faz, não há como evitar. O teto do dano é lixo
+na fila, porque nada vira conta a pagar sem alguém confirmar. Mas a fraude de
+boleto no Brasil não precisa invadir nada: ela conta com código de barras
+perfeito, valor plausível e **beneficiário trocado**, esperando confirmação no
+automático. A tela avisa, destaca boleto de e-mail e mostra o remetente; o
+endereço é trocável em dois cliques se vazar. Se algum dia alguém propuser
+lançar boleto de e-mail automaticamente, é esta a razão de não.
+
 ### 0. Tirar o Supabase do domínio pessoal — urgente
 
 Em 05/10/2026 a plataforma inteira ficou fora do ar: `oseiasansay.com.br`
@@ -76,7 +131,18 @@ removia os pontos como separador de milhar e transformava −0,32% em **−32%**
 cem vezes maior e perfeitamente plausível. Só apareceu porque o teste usou a
 resposta real da API, não um exemplo inventado.
 
-### 1. Repor os tetos de IA — adiado para quinta, 08/10/2026
+### 1. Repor os tetos de IA — PRAZO VENCIDO EM 08/10/2026
+
+> **Conferido em 15/10/2026: uma semana vencido.** O prazo era quinta, 08/10.
+> Se o `.env` do servidor ainda tem `PDCA_CHAT_LIMITE_24H=1000`, a plataforma
+> está há uma semana praticamente sem teto de gasto com IA, e isso não dá
+> nenhum sintoma — nada quebra, tudo responde melhor. Confira antes de
+> qualquer outra coisa desta lista:
+>
+> ```bash
+> # no servidor (VPS)
+> grep -E '^(PDCA_CHAT_LIMITE_24H|IA_LIMITE_DIARIO)=' /opt/finance-src/api/.env
+> ```
 
 Em 02/10 os limites foram afrouxados no `.env` da API para a rodada de testes
 do assistente. Mantidos até 08/10 por causa das reuniões de apresentação de
@@ -96,7 +162,7 @@ Sem `--build`: só o ambiente muda.
 funciona melhor. Só aparece na fatura, semanas depois. É a pendência mais fácil
 de esquecer e a única que custa dinheiro todo dia em que fica esquecida.
 
-### 1. Rotacionar credenciais expostas
+### 2. Rotacionar credenciais expostas
 
 Apareceram em texto claro ao longo do trabalho:
 
@@ -108,7 +174,7 @@ Apareceram em texto claro ao longo do trabalho:
 
 Ordem, sempre: criar a nova → publicar → verificar → só então revogar.
 
-### 2. Decidir sobre os cinco processos do vigia
+### 3. Decidir sobre os cinco processos do vigia
 
 `recorrentes.gerar`, `alertas.diarios`, `mensal.apurar`, `meta.fila` e
 `mensagens.purgar` têm `ultimo_sucesso: null` — nunca rodaram. Não há fluxo
@@ -129,7 +195,7 @@ Duas delas são promessa de produto:
   Sem ele há dado guardado além do prazo que a política de privacidade
   promete.
 
-### 3. Corrigir o fluxo 11 do n8n
+### 4. Corrigir o fluxo 11 do n8n
 
 `workflow-11-credito-drive.json` tem os **três defeitos já corrigidos no
 fluxo 12**: segredo em `$env`, URL de retorno com `/pendentes` e o nó
@@ -139,13 +205,13 @@ está certo; falta reimportar no n8n.
 Pode esperar porque o fluxo 12 drena a fila a cada 15 minutos — nenhum
 documento se perde, só atrasa.
 
-### 4. Desativar "Envio de Diagnósticos (8h)" no n8n
+### 5. Desativar "Envio de Diagnósticos (8h)" no n8n
 
 A API também envia às 8h. **São dois remetentes lendo a mesma fila**: com um
 pendente, o cliente recebe dois e-mails ou os dois marcam o mesmo protocolo
 em corrida. Desativar, não apagar.
 
-### 5. Limpar o Google Drive
+### 6. Limpar o Google Drive
 
 Pastas órfãs e PDFs duplicados das tentativas de depuração do fluxo 11.
 Cuidado: apagar pasta cujo id está em `credito_dossies.drive_folder_id` faz
@@ -372,121 +438,6 @@ cinco campos do relatório a partir dos alertas da régua, no mesmo schema
 Zod, em milissegundos, de graça. Padrão continua `MOTOR_ANALISE=ia`;
 `?motor=codigo` na rota pública usa o código. A régua, o score e os
 indicadores **nunca dependeram de IA**.
-
----
-
-## Pendências
-
-### 0. Tirar o Supabase do domínio pessoal — urgente
-
-Em 05/10/2026 a plataforma inteira ficou fora do ar: `oseiasansay.com.br`
-venceu, o DNS devolveu NXDOMAIN e **nenhum cliente conseguiu entrar**. O
-servidor estava perfeitamente saudável o tempo todo — todos os containers no
-ar, a API respondendo ao n8n, o site carregando. Só o login morreu, porque o
-Supabase mora nesse domínio.
-
-**O problema não foi o vencimento. Foi a dependência.** O produto é
-`businesstriage.com.br`, que continuou funcionando. O login de todos os
-clientes depende de um domínio pessoal, e isso vai se repetir todo ano.
-
-A migração, em quatro passos:
-
-1. Registro A de `supabase.businesstriage.com.br` apontando para o IP do VPS
-2. Regra do Traefik para esse host no `supabase-kong`
-3. `VITE_SUPABASE_URL` no front, e rebuild
-4. `SUPABASE_URL` no `.env` da API, e rebuild
-
-**Cuidado que não é opcional:** o Supabase guarda o próprio endereço externo
-na configuração (`API_EXTERNAL_URL` e as URLs de redirecionamento do Auth).
-Mudar só o DNS e os clientes faz o login confirmar e redirecionar para um
-domínio morto.
-
-Enquanto a migração não acontece, **a data de vencimento do domínio é um
-risco de produção**, não uma tarefa administrativa.
-
-### 0.5. Indicadores econômicos — escrito, não funcionando
-
-Parado em 05/10/2026. O assistente não devolveu a cotação do dólar quando
-pedida. Tudo está escrito e testado (769 testes), falta descobrir onde parou.
-
-**Comece por estas duas saídas, nesta ordem:**
-
-```sql
-select codigo, nome, referencia, valor, unidade, falhas, ultimo_erro, coletado_em
-  from public.indicadores_economicos order by codigo;
-```
-
-```bash
-# no servidor (VPS)
-docker exec finance-api node -e "fetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.1/dados/ultimos/1?formato=json').then(r=>r.text()).then(t=>console.log('OK',t)).catch(e=>console.log('ERRO',e.cause?.code??e.message))"
-```
-
-O que cada resultado significa:
-
-- tabela não existe → **SQL 60 não aplicado**
-- vazia → deploy não entrou, ou container não recriado (`--force-recreate`)
-- quatro linhas, sem `dolar` → a série 1 falhou; ver `ultimo_erro`
-- cinco linhas com `dolar` → o dado está lá, e o problema é o modelo não
-  escolher a ferramenta. Conserto na descrição, não no código
-
-**Suspeita principal:** a série **1** do dólar nunca foi verificada. A 433 do
-IPCA foi testada e responde; a 1 entrou de memória. Se vier vazia ou com outro
-dado, o código está errado em `SERIES` de `indicadores.ts`.
-
-**O que já foi provado:** o container resolve e alcança `api.bcb.gov.br` (o
-bloqueio de DNS de 02/10 era do próprio servidor e passou), e a leitura do
-formato está testada contra a resposta real.
-
-**Defeito achado e corrigido no caminho, que vale lembrar:** o BCB usa ponto
-decimal em algumas séries (`"-0.32"`) e vírgula em outras. A primeira versão
-removia os pontos como separador de milhar e transformava −0,32% em **−32%** —
-cem vezes maior e perfeitamente plausível. Só apareceu porque o teste usou a
-resposta real da API, não um exemplo inventado.
-
-### 1. Repor os tetos de IA — adiado para quinta, 08/10/2026
-
-Em 02/10 os limites foram afrouxados no `.env` da API para a rodada de testes
-do assistente. Mantidos até 08/10 por causa das reuniões de apresentação de
-terça e quarta — teto batendo no meio de uma demonstração é o pior cenário.
-
-- `PDCA_CHAT_LIMITE_24H=1000` → voltar para **30**
-- `IA_LIMITE_DIARIO` elevado → voltar ao valor anterior
-
-```bash
-# no servidor (VPS)
-cd /opt/finance-src/api && nano .env && docker compose up -d
-```
-
-Sem `--build`: só o ambiente muda.
-
-**Por que isto abre a lista.** Teto de gasto afrouxado não dá sintoma — tudo
-funciona melhor. Só aparece na fatura, semanas depois. É a pendência mais fácil
-de esquecer e a única que custa dinheiro todo dia em que fica esquecida. técnicas conhecidas
-
-**Node 20 no servidor, Supabase pede 22.** Avisos hoje; podem virar erro num
-`npm ci` futuro.
-
-**O lead se perde quando a análise falha** — `analisar` lança antes de
-`gravar`, então não fica nada em `diagnosticos`. E a confirmação ao lead
-espera a análise sem precisar: ela só diz "recebemos".
-
-**O corte de 66 contra o de 70** na régua comercial diverge do `corDoScore`
-do PDF.
-
-**As tabelas de pontuação de `regua.ts`** têm o defeito de protótipo já
-corrigido em `regua-comercial.ts`: `TABELA[valor] ?? padrão` acha
-`toString`.
-
-**`vw_consultor_publico` é SECURITY DEFINER** — o Advisor do Supabase marca
-como crítico. "Pública" no nome e "ignora RLS" na definição é combinação que
-costuma terminar mal.
-
-**Dois n8n rodando.** `n8n-n8n-1` em `n8n.oseiasansay.com.br` é instalação
-antiga sem uso e continua exposta.
-
-**Os fluxos exportados do n8n não estão todos no git** — alguns têm segredo
-em texto puro. Cópias em `/root/fluxos-n8n` e em `C:\Projetos\Claude\n8n`.
-Os do crédito (11 e 12) estão no git porque foram escritos sem segredo.
 
 ---
 

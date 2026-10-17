@@ -86,7 +86,8 @@ with esperado(objeto, arquivo) as (values
   ('indicadores_economicos','60'),
 
   -- Movimento diário
-  ('formas_recebimento','61'), ('movimentos_diarios','61')
+  ('formas_recebimento','61'), ('movimentos_diarios','61'),
+  ('boletos_capturados','62'), ('boleto_entrada_email','63')
 )
 select
   x.objeto                             as faltando,
@@ -135,7 +136,12 @@ with esperado(tabela, coluna, arquivo) as (values
   ('planos_acao',           'origem',       '58'),
   ('planos_acao',           'diagnostico_competencia', '58'),
   ('pdca_mensagens',        'ferramentas',  '59'),
-  ('transactions',          'movimento_id', '61')
+  ('transactions',          'movimento_id', '61'),
+  -- Sem estas, a rota do webhook de e-mail grava e a tela não mostra de
+  -- onde o boleto veio — que é a informação que torna a conferência uma
+  -- conferência, e não um clique.
+  ('boletos_capturados',    'origem',       '63'),
+  ('boletos_capturados',    'remetente',    '63')
 )
 select
   x.tabela || '.' || x.coluna     as faltando,
