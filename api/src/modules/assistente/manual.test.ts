@@ -73,12 +73,18 @@ describe('o manual embutido', () => {
    * assistente responderia com confiança sobre as duas primeiras e
    * inventaria as outras.
    */
-  it('cobre as quatro ferramentas', () => {
+  it('cobre as oito ferramentas', () => {
     for (const secao of [
+      // Prazo e caixa
       'Fluxo de Caixa Projetado',
       'Cálculo de Capital de Giro',
       'Ciclo Operacional e Financeiro',
       'Plano de Redução de Ciclo',
+      // Preço e resultado
+      'Margem de Contribuição e Ponto de Equilíbrio',
+      'Custo da Hora Produtiva',
+      'Centros de Resultado',
+      'Os Três Índices',
     ]) {
       assert.ok(MANUAL_FERRAMENTAS.includes(secao), `faltou a seção: ${secao}`);
     }
@@ -92,10 +98,17 @@ describe('o manual embutido', () => {
   /**
    * Teto de tamanho, não exatidão.
    *
-   * O manual entra em todo prompt do assistente. Crescer é natural —
-   * faltam oito ferramentas —, mas passar de uns 60 mil caracteres é o
-   * sinal de que chegou a hora de virar ferramenta `consultar_manual`,
-   * em vez de continuar inteiro no prefixo.
+   * O manual entra em todo prompt do assistente.
+   *
+   * Em 17/10/2026, com oito das doze ferramentas, ele está em cerca de
+   * 50 mil caracteres (~14 mil tokens). As quatro que faltam —
+   * Pró-labore, Provisão, Orçamento Anual e Indicadores Comerciais —
+   * devem estourar o teto.
+   *
+   * Isso é esperado, e é o sinal combinado: passar de 60 mil significa
+   * que chegou a hora de virar ferramenta `consultar_manual`, com o
+   * modelo pedindo só a seção relevante, em vez de carregar o manual
+   * inteiro no prefixo de toda conversa.
    *
    * O teste existe para essa decisão ser tomada de propósito, e não
    * descoberta na fatura.

@@ -192,7 +192,8 @@ dado numa área recebe "não há" quando a ferramenta roda.
 
 **O manual das telas vive no prompt, com quebra de cache própria.** O
 assistente recebe três blocos de sistema, do mais compartilhado para o mais
-específico: instrução (constante), manual (constante, ~7.200 tokens), contexto
+específico: instrução (constante), manual (constante, ~14 mil tokens com oito
+ferramentas), contexto
 (varia por empresa). A quebra **depois do manual** faz o prefixo —
 ferramentas + instrução + manual — ser idêntico para todos os clientes e
 dividir uma única entrada de cache. Com uma quebra só no fim, cada empresa
@@ -207,7 +208,9 @@ ensinando uma versão e o cliente lendo outra, sem nenhum sintoma. Embutido em
 `.ts` e não lido em execução porque o runtime do Dockerfile copia só o `dist`:
 um `.md` em `src` não chega ao container. Quando passar de ~60 mil caracteres
 (o teste avisa), vira ferramenta `consultar_manual` em vez de seguir inteiro
-no prefixo.
+no prefixo. Em 17/10/2026 ele está em 50 mil com oito das doze ferramentas —
+as quatro que faltam devem estourar o teto, e isso é o sinal combinado, não um
+acidente.
 
 **O modelo não faz conta.** As ferramentas leem as mesmas views das telas e
 devolvem o valor já somado. Dois lugares calculando o mesmo número terminam

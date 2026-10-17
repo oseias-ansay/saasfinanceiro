@@ -19,23 +19,41 @@
 
 export const MANUAL_FERRAMENTAS = `# Como usar este manual
 
-Este manual cobre as **quatro primeiras ferramentas financeiras** da sua
-plataforma. Elas não são independentes: foram desenhadas para serem usadas
-nesta ordem, e cada uma responde uma pergunta diferente sobre o mesmo
-problema.
+Este manual cobre **oito ferramentas financeiras** da sua plataforma,
+organizadas em dois blocos. Elas não são independentes: cada uma responde uma
+pergunta diferente sobre o mesmo negócio, e juntas contam uma história.
 
-| Ferramenta | Pergunta que responde | O que ela faz |
+## Bloco 1 — Prazo e caixa
+
+*Quando o dinheiro entra e sai, e por que ele demora.*
+
+| Ferramenta | Pergunta que responde | O que faz |
 |---|---|---|
 | Fluxo de Caixa Projetado | **Quando** o caixa aperta, e quanto falta | Mede |
 | Capital de Giro | **Quanto** a operação exige, e se é pico ou estrutura | Mede |
 | Ciclo Operacional e Financeiro | **Por que** acontece | Mede |
 | Plano de Redução de Ciclo | **O que fazer** | Compromete |
 
-As três primeiras medem. A quarta compromete — ela transforma número em ação
-com responsável e prazo.
+## Bloco 2 — Preço e resultado
+
+*Se a conta fecha, onde fecha, e se vale a pena.*
+
+| Ferramenta | Pergunta que responde | Para quem |
+|---|---|---|
+| Margem de Contribuição e Ponto de Equilíbrio | **Se a conta fecha** | Todos |
+| Custo da Hora Produtiva | **Quanto custa produzir** | Quem vende tempo |
+| Centros de Resultado | **Em qual parte a conta fecha** | Quem tem 2+ frentes |
+| Os Três Índices | **Se vale a pena ter esta empresa** | Todos |
 
 **Se você só tem tempo para uma:** abra o Fluxo de Caixa Projetado. É a que
 mostra o problema mais cedo.
+
+**Se você quer entender o negócio:** Margem de Contribuição. É a que diz se a
+conta fecha.
+
+**A diferença entre os dois blocos vale saber:** problema de prazo se resolve
+negociando. Problema de margem, não — nenhuma renegociação salva uma operação
+cuja conta não fecha.
 
 ---
 
@@ -579,6 +597,474 @@ negociar com fornecedor nem mudar política com cliente.
 
 ---
 
+# 5. Margem de Contribuição e Ponto de Equilíbrio
+
+## Para que serve
+
+Responder duas perguntas que dependem uma da outra: **quanto sobra de cada
+venda** e **quanto você precisa vender para não ter prejuízo**.
+
+Margem de contribuição é o que sobra depois de pagar tudo que varia com a
+venda — e antes de pagar o que não varia. O custo do produto varia. A comissão
+varia. O imposto sobre a venda varia. A taxa do cartão varia. O aluguel, a
+contadora e o administrativo não variam.
+
+Então a margem de contribuição é literalmente **o quanto cada venda contribui**
+para pagar o que é fixo. O que sobra depois disso é lucro.
+
+> A mesma ferramenta existe em dois lugares: o card do painel e a aba
+> *Precificação* do Controle Financeiro. Gerenciam os mesmos produtos —
+> cadastrar em um aparece no outro.
+
+## As duas margens na tela
+
+**MC bruta** é o preço menos o custo direto. É sempre otimista e **não serve
+para decidir nada sozinha**.
+
+**MC líquida** é o que sobra depois do custo, do imposto e da comissão. É a
+que manda.
+
+A distância entre as duas é exatamente o que o Estado e o vendedor levam de
+cada venda. Costuma ser maior do que se imagina.
+
+## Como preencher cada produto
+
+**Produto, Preço, Custo** — nome, preço praticado e custo direto por unidade.
+
+**ST R$** — imposto em **valor por unidade** (ICMS-ST, alíquota por litro ou
+por quilo). Tem campo próprio porque imposto em valor não acompanha o preço:
+somado aos percentuais, ele cresceria quando o preço subisse. Se não existe no
+seu caso, deixe zero.
+
+**% imposto** — alíquota sobre o preço de venda. Está separado dos outros
+percentuais porque a alíquota muda de produto para produto (ISS de serviço ao
+lado de ICMS de mercadoria), enquanto comissão e cartão costumam ser iguais
+para tudo.
+
+**% outros** — comissão, frete, embalagem, taxa de cartão. Sem o imposto.
+
+**% mix** — quanto o produto representa do seu faturamento.
+
+> Produtos cadastrados antes de setembro de 2026 podem ter o imposto somado em
+> "% outros". A margem está correta; só não dá para ver quanto é imposto. Para
+> separar, exclua e cadastre de novo.
+
+## Por que o mix decide tudo
+
+A conta que quase todo material ensina — despesa fixa dividida pela margem —
+**só vale para quem vende um produto só**. Com vários, o que paga a estrutura
+é a média **ponderada pela participação de cada um no faturamento**.
+
+A diferença não é de arredondamento. Uma empresa que fatura 80% num item de
+20% de margem e 20% num de 60%:
+
+- média simples: (20 + 60) ÷ 2 = **40%**
+- média ponderada: 0,8 × 20 + 0,2 × 60 = **28%**
+
+Com R$ 20 mil de despesa fixa, a primeira diz que basta faturar R$ 50 mil; a
+segunda, **R$ 71.400**.
+
+> **Vinte e um mil de diferença.** Quem usa a média simples fecha o mês achando
+> que lucrou e descobre o contrário no extrato. É por isso que a tela pede o
+> mix de cada produto.
+
+A tela soma as participações no topo da lista. Se fugir de 100%, ela ajusta
+proporcionalmente para calcular e avisa — desvio grande costuma ser erro de
+digitação.
+
+## Como ler os três resultados
+
+**Índice de margem de contribuição** — a média ponderada. De cada R$ 100
+faturados, quanto sobra para pagar o fixo. Governa todo o resto da tela.
+
+**Ponto de equilíbrio** — quanto faturar no mês para não ter lucro nem
+prejuízo: custo fixo ÷ índice. Abaixo disso você paga para trabalhar. A tabela
+quebra esse total por produto, em reais e em unidades — o que transforma uma
+meta de faturamento numa meta que o vendedor entende.
+
+**Margem de segurança** — quanto o faturamento pode cair antes do prejuízo. A
+tela avisa abaixo de 10%. Negativa e vermelha significa que o mês atual já
+está dando prejuízo.
+
+## O produto que dá prejuízo em cada venda
+
+Quando a margem de contribuição de um produto fica **negativa**, a tela o
+nomeia: *o preço não cobre nem os custos que variam com a venda. Cada unidade
+vendida aumenta o prejuízo.*
+
+> **Vender mais piora.**
+
+É contraintuitivo, e por isso a tela nomeia o produto. O instinto de quem está
+apertado é empurrar volume para cobrir o custo fixo — e se o item tem margem
+negativa, esse esforço cava o buraco mais fundo, com mais trabalho, mais frete
+e mais comissão paga.
+
+Três saídas, e nenhuma é vender mais:
+
+1. **Subir o preço** até a margem ficar positiva
+2. **Baixar o custo** — fornecedor, embalagem, comissão
+3. **Parar de vender** aquele item
+
+A terceira assusta e às vezes é a certa. Há exceção legítima — produto de
+entrada que puxa a venda de outros —, mas isso precisa ser decisão consciente,
+não descoberta no fim do ano.
+
+## A conta do desconto
+
+Produto de R$ 100 com MC líquida de 15% deixa R$ 15 por venda.
+
+Um desconto de 10% leva o preço a R$ 90, e o custo variável quase não muda.
+Sobram cerca de **R$ 5**.
+
+> **Um desconto de 10% levou dois terços da margem.** Para manter o mesmo
+> dinheiro no fim do mês, seria preciso vender quase três vezes mais.
+
+É a conta que mais muda comportamento comercial, e quase ninguém faz.
+
+## Erros comuns
+
+- Usar a MC bruta para decidir. Ela ignora imposto e comissão.
+- Não preencher o mix, ou chutar. Sem ele o índice está errado, e com ele todo
+  o resto.
+- Confundir margem de contribuição com lucro. A MC paga o fixo primeiro.
+- Tentar vender mais um produto de margem negativa.
+- Esquecer de revisar os custos fixos na aba ao lado. Fixo errado, equilíbrio
+  errado.
+- Tratar o ponto de equilíbrio como meta. Ele é o piso — ninguém abre empresa
+  para empatar.
+
+---
+
+# 6. Custo da Hora Produtiva
+
+## Para que serve
+
+**Para quem vende tempo**: serviço, manutenção, oficina, consultoria, obra,
+assistência técnica. Comércio puro não usa esta tela.
+
+Ela responde quanto custa, de verdade, uma hora da sua equipe.
+
+A conta que todo mundo faz — folha dividida pelas 220 horas do contrato — dá
+um número bonito e falso. A tela mostra os dois lado a lado e **risca o
+primeiro**: "Hora contratada · a conta errada" de um lado, "Hora produtiva · a
+conta certa" do outro.
+
+> Na maioria das empresas de serviço, a hora real custa **40% a 80% a mais**
+> que a contratada. E erra sempre para baixo — a direção que faz o serviço
+> parecer lucrativo quando não é.
+
+## Por que a hora contratada mente
+
+**Horas que você paga e não tem.** Férias provisionadas, feriados, faltas e
+atestados saem da folha e não geram serviço nenhum.
+
+**Ocupação produtiva.** Das horas que sobram, só parte é trabalho que o cliente
+paga. Deslocamento, orçamento que não fechou, retrabalho e espera consomem o
+resto. **Setenta por cento já é uma equipe bem organizada** — não é
+ineficiência, é como serviço funciona.
+
+Resultado: você paga 220 horas, tem cerca de 190 disponíveis, e dessas umas
+133 viram trabalho faturável. **A folha inteira se paga com 133 horas.**
+
+## Como preencher
+
+**Folha do mês** — salários, encargos e benefícios. Se você classificou as
+categorias com papel de folha, o valor vem medido como sugestão. Senão,
+digite.
+
+**Pessoas na equipe** — quantas pessoas a folha cobre.
+
+**Horas contratadas por mês** — 220 na jornada de 44h semanais.
+
+**Férias provisionadas** — **um doze avos** do período, não o mês inteiro de
+férias. Trinta dias por ano ÷ 12 ≈ **18 horas por mês**. Você provisiona todo
+mês porque todo mês acumula esse direito.
+
+**Feriados do mês** — na **média do ano**, não os deste mês. Cerca de 12
+feriados ÷ 12 ≈ **8 horas**. Usar os feriados de um mês faria a hora custar
+caro em abril e barato em agosto, e o seu preço não muda de mês para mês.
+
+**Faltas, atestados e atrasos** — o que realmente acontece. Se não controla,
+estime com honestidade: aproximação vale mais que um zero que você sabe ser
+falso.
+
+**Ocupação produtiva** — **70% é o ponto de partida razoável**. Acima de 85% a
+tela avisa que é alto demais para ser real.
+
+> Chutar a ocupação para cima é a forma mais comum de fazer a hora parecer
+> barata. A conta inteira existe para ela não parecer barata.
+
+## Como ler o resultado
+
+A tela mostra o caminho das horas — contratadas, perdidas, disponíveis,
+produtivas — e os dois custos, com a diferença em porcentagem.
+
+**Essa porcentagem é a margem de erro de todo orçamento que você já fez** pela
+hora contratada.
+
+Dois avisos podem aparecer:
+
+- **Perdas acima de um quinto** das horas contratadas. Pode ser erro de
+  preenchimento; se o número estiver certo, vale olhar o absenteísmo antes de
+  qualquer conta de preço.
+- **Ocupação acima de 85%**, como explicado acima.
+
+## O serviço que você faz de graça
+
+Todo negócio de serviço tem um: a visita técnica, o orçamento no local, o
+"passa lá para dar uma olhada". Ninguém sabe quanto custa.
+
+Preencha três campos — qual serviço, quantas horas cada um leva, quantos por
+mês — e a tela devolve o custo **de cada vez** e **por ano**. O anual costuma
+assustar.
+
+> **Antes de sair cobrando:** cobrar um serviço que era grátis derruba o
+> volume. Saber o custo não obriga a cobrar — obriga a decidir.
+
+Alternativas que só existem com o número na mão:
+
+- Cobrar, e **abater do serviço** se fechar
+- Cobrar só fora de um raio de distância
+- Manter grátis, e contar como **custo de aquisição de cliente** — que é o que
+  ele é
+- Reduzir a duração, não o serviço
+
+## O que fazer com o número
+
+**Orçar** pela hora produtiva, nunca pela contratada. E lembre: ela é
+**custo**, não preço — sobre ela ainda vão margem e despesa fixa.
+
+**Revisar** os três últimos orçamentos com a hora real. Costuma aparecer pelo
+menos um que dá prejuízo.
+
+**Subir a ocupação** é a alavanca mais barata: de 70% para 75% baixa o custo da
+hora **sem demitir ninguém e sem cortar salário**. Menos deslocamento, melhor
+roteirização, menos orçamento perdido.
+
+## Erros comuns
+
+- Pôr o mês inteiro de férias em vez de um doze avos.
+- Usar os feriados do mês atual em vez da média do ano.
+- Chutar ocupação de 90%.
+- Zerar as faltas porque não controla.
+- Usar a hora produtiva como preço. Ela é custo.
+
+---
+
+# 7. Centros de Resultado
+
+## Para que serve
+
+**Para quem tem duas ou mais frentes**: loja e oficina, salão e venda de
+produto, duas unidades, delivery e salão.
+
+Responde qual frente dá lucro — e, mais importante, impede que você feche a
+frente errada.
+
+> **Nunca feche uma frente pelo resultado rateado.** Decida pela **contribuição
+> após diretos**.
+
+## Como as frentes são medidas
+
+A regra é uma só: **lançamento com centro de custo pertence àquela frente;
+lançamento sem centro é custo comum.**
+
+As frentes são **medidas**, não estimadas. Você classifica o lançamento uma
+vez, no dia em que ele acontece, e a tela monta tudo.
+
+Quanto mais você classifica, menor fica o bolo comum e mais honesta fica a
+leitura. Quando quase tudo é comum, a tela avisa em vez de fingir precisão.
+
+## A linha que decide
+
+**Contribuição após diretos** é a margem da frente menos os custos fixos que
+**só existem por causa dela** — o mecânico que só trabalha na oficina, o
+galpão que é só dela, o software que só ela usa.
+
+Em uma frase: **é o que some se a frente fechar amanhã.**
+
+Por isso ela tem peso visual maior que o resultado rateado, que vem depois em
+cinza.
+
+### O exemplo que explica a regra
+
+Uma oficina com contribuição após diretos de **+R$ 8.000 por mês** entrega
+oito mil reais para ajudar a pagar o aluguel, a contadora e o administrativo.
+
+Se você fechar: os oito mil somem, e o aluguel continua vindo.
+
+> **A empresa fica R$ 8.000 por mês pior** — mesmo que, depois do rateio,
+> aquela oficina apareça com prejuízo.
+
+Contribuição após diretos positiva significa que a frente ajuda. Ela pode
+precisar de correção, mas fechá-la piora a empresa. Só quando essa linha é
+**negativa** a frente é candidata a correção ou fechamento — e a tela nomeia a
+frente quando isso acontece.
+
+## Os dois critérios de rateio
+
+**Critério A — pela receita.** A frente que fatura 70% leva 70% do custo
+comum. Calculado sozinho.
+
+**Critério B — o seu.** Você informa o percentual de cada frente, pela régua
+que conseguir defender: metros quadrados, pessoas, horas de uso.
+
+Mostrar um só faria o número **parecer verdade**. Com os dois, você vê a mesma
+frente aparecer lucrativa por um critério e deficitária pelo outro, sem que
+nada tenha mudado na operação.
+
+E a linha final — **"Diferença entre os critérios"** — soma sempre **zero**.
+
+> Esse zero é a lição: **o rateio não cria nem destrói resultado, só muda de
+> quem ele é.**
+
+Se os percentuais não somarem 100%, a tela calcula só o critério A e avisa.
+Ratear parte do custo comum faria o resultado somado das frentes parecer
+melhor que o da empresa.
+
+## Os quatro alertas
+
+**Frente com contribuição negativa** — a única situação em que fechar está na
+mesa.
+
+**Vermelha no rateio, positiva na contribuição** — *não feche*. É o erro que a
+ferramenta existe para impedir.
+
+**Bolo comum grande demais** — classifique mais lançamentos; a leitura fica
+mais firme.
+
+**Percentual não paga aluguel** — a frente de maior margem percentual nem
+sempre é a que mais contribui em reais. Uma frente com 60% sobre faturamento
+pequeno pode contribuir menos que outra com 20% sobre faturamento grande.
+
+## O caso da frente nova
+
+Frente recém-aberta leva fatia do custo comum desde o primeiro mês. Olhando o
+resultado rateado, você a mata no terceiro mês. Olhando a contribuição após
+diretos, vê a verdade: ela já está ajudando, ou ainda não.
+
+## Erros comuns
+
+- Decidir pelo resultado rateado.
+- Não classificar os lançamentos.
+- Perseguir a maior margem percentual.
+- Matar frente nova no terceiro mês.
+- Achar que um critério de rateio é mais "certo" que o outro. Nenhum é.
+
+---
+
+# 8. Os Três Índices
+
+## Para que serve
+
+Margem, lucratividade e rentabilidade são três palavras que quase todo mundo
+usa como sinônimo. Os três medem **uma sobra** — o que muda é contra o que ela
+é comparada:
+
+| Índice | Divide por | Responde |
+|---|---|---|
+| Margem de contribuição | a venda | Quanto sobra de cada venda para o fixo |
+| Lucratividade | o faturamento | De tudo que entrou, quanto virou lucro |
+| Rentabilidade | o **capital** | Quanto o dinheiro investido rende |
+
+> Uma empresa pode ter **margem excelente e rentabilidade péssima** — porque o
+> capital preso no estoque e no carnê é grande demais para o lucro que ela
+> gera. É esse descolamento que a tela mostra.
+
+## O capital investido
+
+A tela monta uma conta que quase nenhuma empresa pequena tem pronta: quanto do
+seu próprio dinheiro está dentro do negócio.
+
+Soma **estoque + clientes a receber + imóvel, veículo e equipamentos + saldo
+em caixa**. Subtrai **o que ainda é de terceiros** — fornecedores a pagar e o
+saldo devedor de empréstimos.
+
+O que sobra é o **capital investido**.
+
+> No imobilizado, entre com o **valor já depreciado**, não o de compra. Uma van
+> de 2015 não vale o que custou.
+
+Logo abaixo, a tela mostra **quanto por cento desse capital está preso no
+ciclo** — em estoque e a receber, menos o que o fornecedor financia. Esse
+número explica a rentabilidade.
+
+## O lucro econômico: descontar o dono
+
+O lucro do seu DRE **ainda contém o seu trabalho**, que não foi pago a preço de
+mercado. A tela subtrai o pró-labore e chega ao **lucro econômico** — o que o
+negócio rendeu depois de remunerar quem o toca.
+
+É esse número que vai para a rentabilidade. Sem isso você compararia o
+rendimento da sua empresa, onde trabalha todo dia, com uma aplicação onde não
+faz nada.
+
+Se o pró-labore for maior que o lucro, a tela diz: *o negócio está pagando o
+seu salário e nada além disso.*
+
+> Isso não significa empresa ruim. Significa que ela funciona hoje como
+> **emprego**, não como investimento. São duas coisas legítimas — é bom saber
+> qual você tem.
+
+## A rentabilidade é composta
+
+A tela mostra o **anual composto**, não a mensal vezes doze.
+
+Um por cento ao mês não dá 12% ao ano. Dá **12,68%**, porque o rendimento de
+um mês rende no seguinte. É assim que qualquer aplicação é cotada, e sem isso
+a comparação sai errada e sempre para menos.
+
+Com esse número você finalmente pode perguntar: **o meu dinheiro, parado nesta
+empresa, rende mais do que renderia em outro lugar?**
+
+## Margem boa com rentabilidade ruim
+
+Quando isso acontece, a tela diz: *não é problema de preço; é capital demais
+preso para o lucro que a operação gera.*
+
+O instinto é mexer no preço — e **preço não é o problema**. Mexer nele não
+resolve e pode piorar, se derrubar volume.
+
+O problema é capital preso, e a solução está nas telas de **Ciclo** e no
+**Plano de Redução**: girar o estoque mais rápido, encurtar o recebimento.
+
+## Os dois índices de apoio
+
+**Liquidez corrente** — para cada R$ 1 que vence no próximo ano, quanto há
+disponível. Abaixo de 1, o caixa não fecha sem crédito novo ou prazo novo.
+
+> Mesmo com folga, vale a ressalva que a própria tela faz: **boa parte disso é
+> estoque, e estoque não paga boleto até virar venda.** Liquidez de 1,5 com
+> estoque parado é muito diferente de 1,5 em caixa.
+
+**Endividamento** — quanto do que está dentro da empresa é de terceiros. Acima
+de 60% a tela comenta, mas o que decide não é o percentual: **é o serviço da
+dívida — a parcela mensal contra a geração de caixa.** Uma empresa com 70% e
+parcela confortável está melhor que uma com 40% e parcela que não cabe.
+
+Se o capital de terceiros for maior que tudo que a empresa tem, a rentabilidade
+**não é calculada** — não há capital próprio para render, e a tela prefere não
+mostrar número a mostrar um absurdo.
+
+## O limite desta conta
+
+> **Rentabilidade não é quanto a empresa vale.**
+
+Valuation é outra conta, com outras premissas. Usar a rentabilidade como preço
+de venda é um erro que custa caro dos dois lados da mesa.
+
+## Erros comuns
+
+- Chamar lucratividade de margem. São denominadores diferentes.
+- Não descontar o pró-labore.
+- Usar o valor de compra no imobilizado.
+- Multiplicar a rentabilidade mensal por 12.
+- Ler liquidez sem olhar a composição.
+- Tratar endividamento alto como problema por si.
+- Tentar consertar rentabilidade baixa mexendo em preço.
+
+---
+
 # Perguntas frequentes
 
 **Por que o número da plataforma é diferente do que o meu contador calculou?**
@@ -656,6 +1142,99 @@ Não. É deixar de tomar emprestado. O ganho é o juro que você não paga.
 Porque capital de giro se renova mês a mês. Você não toma o empréstimo uma
 vez — você rola a dívida ao longo do ano.
 
+**Qual a diferença entre MC bruta e MC líquida?**
+
+A bruta é o preço menos o custo direto, e é sempre otimista. A líquida desconta
+também o imposto e a comissão. Decida pela líquida; a distância entre as duas
+é o que o Estado e o vendedor levam de cada venda.
+
+**Por que preciso informar o mix de cada produto?**
+
+Porque o que paga a sua estrutura é a média ponderada pelo faturamento, não a
+média das margens. Num caso real a diferença chegou a R$ 21 mil no ponto de
+equilíbrio. Sem o mix, o índice está errado — e com ele, todo o resto da tela.
+
+**O que faço com um produto de margem de contribuição negativa?**
+
+Primeiro entenda o que ela significa: cada unidade vendida aumenta o prejuízo,
+então vender mais piora. Três saídas: subir o preço, baixar o custo, ou parar
+de vender. Se for produto de entrada que puxa outras vendas, mantê-lo pode ser
+certo — mas como decisão consciente.
+
+**Um desconto de 10% é pouco?**
+
+Num produto com 15% de margem líquida, um desconto de 10% leva cerca de dois
+terços do que sobra. Para manter o mesmo dinheiro no mês, seria preciso vender
+quase três vezes mais.
+
+**Por que a hora contratada está errada?**
+
+Porque ela ignora as horas que você paga e não tem (férias, feriados, faltas)
+e as horas disponíveis que não viram trabalho faturável (deslocamento,
+orçamento perdido, retrabalho). Você paga 220 horas e fatura cerca de 133 — a
+folha inteira se paga com essas 133.
+
+**O que é ocupação produtiva, e quanto é realista?**
+
+É quanto da hora disponível vira trabalho que o cliente paga. **Setenta por
+cento já é uma equipe bem organizada.** Acima de 85% a tela avisa, porque
+chutar esse número para cima é a forma mais comum de fazer a hora parecer
+barata.
+
+**Devo começar a cobrar pela visita técnica?**
+
+A ferramenta não responde isso — ela diz quanto custa. Cobrar um serviço que
+era grátis derruba o volume. Com o número na mão você tem alternativas:
+cobrar e abater se fechar, cobrar fora de um raio, ou manter grátis contando
+como custo de aquisição de cliente.
+
+**Qual frente do meu negócio devo fechar?**
+
+Decida pela **contribuição após diretos**, nunca pelo resultado rateado. Se ela
+é positiva, a frente ajuda a pagar o custo comum — fechá-la piora a empresa,
+porque o aluguel continua vindo. Só contribuição negativa coloca o fechamento
+na mesa.
+
+**O que é contribuição após diretos?**
+
+É a margem da frente menos os custos fixos que só existem por causa dela. Em
+uma frase: o que some se a frente fechar amanhã.
+
+**Qual critério de rateio é o certo?**
+
+Nenhum. São escolhas de gestão, e é por isso que a tela mostra dois lado a
+lado. A diferença entre eles soma sempre zero: o rateio não cria nem destrói
+resultado, só muda de quem ele é.
+
+**Qual a diferença entre margem, lucratividade e rentabilidade?**
+
+Os três medem uma sobra; muda o denominador. Margem divide pela venda,
+lucratividade pelo faturamento, rentabilidade pelo **capital investido**. A
+terceira é a única que leva em conta quanto dinheiro seu está parado na
+empresa.
+
+**Por que descontar o pró-labore para calcular a rentabilidade?**
+
+Porque o lucro do DRE ainda contém o seu trabalho, que não foi pago a preço de
+mercado. Sem descontar, você compararia o rendimento da sua empresa — onde
+trabalha todo dia — com uma aplicação onde não faz nada.
+
+**Minha margem é boa mas a rentabilidade é baixa. Por quê?**
+
+Não é problema de preço: é capital demais preso para o lucro que a operação
+gera. Mexer no preço não resolve. A solução está nas telas de Ciclo e no Plano
+de Redução — girar o estoque mais rápido e encurtar o recebimento.
+
+**Por que a rentabilidade anual não é a mensal vezes doze?**
+
+Porque é composta: o rendimento de um mês rende no mês seguinte. Um por cento
+ao mês dá 12,68% ao ano, não 12%. É assim que qualquer aplicação é cotada.
+
+**A rentabilidade diz quanto minha empresa vale?**
+
+Não. Valuation é outra conta, com outras premissas. Usar a rentabilidade como
+preço de venda é um erro que custa caro dos dois lados da mesa.
+
 ---
 
 # Glossário
@@ -687,6 +1266,58 @@ dinheiro andou.
 **Caixa** — o regime que olha quando o dinheiro de fato entrou ou saiu.
 
 **Alavanca** — uma ação específica que reduz o ciclo, com responsável e prazo.
+
+**Margem de contribuição** — o que sobra de cada venda depois dos custos que
+variam com ela, e antes dos que não variam.
+
+**MC bruta** — preço menos custo direto, antes de imposto e comissão. Sempre
+otimista.
+
+**MC líquida** — o que sobra depois do custo, do imposto e da comissão. É a
+que decide.
+
+**Índice de margem de contribuição** — a média das margens **ponderada pela
+participação de cada produto no faturamento**.
+
+**Ponto de equilíbrio** — faturamento necessário para não ter lucro nem
+prejuízo: custo fixo ÷ índice de margem.
+
+**Margem de segurança** — quanto o faturamento pode cair antes do prejuízo.
+
+**Hora contratada** — folha ÷ horas do contrato. O número que quase todo mundo
+usa, e que erra para baixo.
+
+**Hora produtiva** — folha ÷ horas que de fato viram trabalho faturável. O
+custo real.
+
+**Ocupação produtiva** — quanto da hora disponível vira trabalho que o cliente
+paga. 70% é uma equipe bem organizada.
+
+**Contribuição após diretos** — a margem de uma frente menos os custos fixos
+que só existem por causa dela. O que some se ela fechar.
+
+**Custo comum** — despesa fixa que não pertence a nenhuma frente e entra no
+rateio.
+
+**Rateio** — distribuição do custo comum entre as frentes por um critério
+escolhido. Não cria nem destrói resultado; só muda de quem ele é.
+
+**Lucratividade** — lucro ÷ faturamento. De tudo que entrou, quanto virou
+lucro.
+
+**Rentabilidade** — lucro econômico ÷ capital investido. Quanto o dinheiro do
+dono rende dentro da empresa.
+
+**Lucro econômico** — lucro menos pró-labore. O que sobra depois de remunerar
+o trabalho do dono.
+
+**Capital investido** — o que a empresa tem (estoque, a receber, imobilizado,
+caixa) menos o que é de terceiros (fornecedores, saldo devedor).
+
+**Liquidez corrente** — quanto há disponível para cada R$ 1 que vence no
+próximo ano.
+
+**Endividamento** — quanto do que está dentro da empresa é de terceiros.
 
 ---
 
