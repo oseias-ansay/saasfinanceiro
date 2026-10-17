@@ -8,7 +8,7 @@ operada por uma consultoria. Dois repositórios:
 
 ## Como trabalhar aqui
 
-**Teste antes de dar por pronto.** `cd api && npm test` roda a suíte (848 testes,
+**Teste antes de dar por pronto.** `cd api && npm test` roda a suíte (905 testes,
 node:test sobre o `dist`). `npx tsc --noEmit` para o typecheck. Os dois precisam
 passar; a suíte já pegou erros meus várias vezes.
 
@@ -109,6 +109,43 @@ falha — inclusive no PowerShell, até alguém remover o lock à mão. Também 
 15/10/2026: um `checkout -b` + `add` deixou o repositório travado. Se o Claude
 precisar commitar, o certo é ele escrever os comandos e você rodar no
 PowerShell.
+
+**Arquivo versionado editado no servidor trava TODO deploy futuro, em
+silêncio.** É a armadilha mais cara descoberta até agora, e o sintoma não
+aponta para ela.
+
+Em 08/10/2026 a integração do CRM (`modules/diagnosticos/crm.ts`,
+`publico.routes.ts` e `env.ts`) foi escrita direto em produção e nunca
+commitada. A partir dali **todo `git pull` no VPS abortou** com "Your local
+changes would be overwritten by merge" — e ninguém viu, porque o comando de
+publicar é uma linha com `&&` e a saída rola na tela. O `--build` seguia
+rodando em cima do código antigo. **Nove dias de deploy que não chegavam.**
+
+O sintoma apareceu como **404 numa rota nova que existia no repositório** —
+idêntico ao de esquecer o `--build`, que é onde eu procurei primeiro, duas
+vezes.
+
+**Antes de culpar o build, rode isto:**
+
+```bash
+# no servidor (VPS)
+cd /opt/finance-src && git status --short
+```
+
+Vazio é o esperado. Qualquer linha ali é um deploy que não vai acontecer.
+
+E o teste que diz, sem opinião, se o container tem o código:
+
+```bash
+# no servidor (VPS)
+docker exec finance-api grep -c "api/v1/boletos" /app/dist/app.js
+```
+
+**Nunca rode `git reset --hard` ou `git clean -fd` para destravar.** Pode
+haver funcionalidade inteira só ali — foi o caso. Copie para fora do git
+primeiro (`cp` para `/root/resgate-...`), traga para o repositório, e só
+então limpe. Valor de configuração vai no `.env`, que não é versionado
+justamente para isso; o servidor deve ser só `git pull` e build.
 
 **Cache do navegador** mascarava deploys: o `index.html` ficava em cache
 apontando para o JS antigo. Resolvido em `site-nginx.conf` com `no-store` no

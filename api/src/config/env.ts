@@ -64,6 +64,21 @@ const schema = z.object({
   // segredo qualquer um criaria lead e mensagem falsos.
   EVOLUTION_WEBHOOK_TOKEN: z.string().default(''),
 
+  // --- Triage CRM ---------------------------------------------------
+  //
+  // Para onde vai a cópia de cada lead dos diagnósticos do site.
+  //
+  // Tem de ser o endereço INTERNO do Docker: contêiner chamando o
+  // domínio público do próprio host não completa a volta. Vazio desliga
+  // a integração, e é o padrão.
+  //
+  // Esta linha e o `modules/diagnosticos/crm.ts` viveram nove dias só no
+  // servidor, editados direto em produção em 08/10/2026. Foi o que fez
+  // todo `git pull` no VPS abortar em silêncio — e o sintoma apareceu
+  // como 404 numa rota nova que existia no repositório. Trazido para cá
+  // em 17/10/2026.
+  CRM_FORMS_URL: z.string().default(''),
+
   // --- SMTP --------------------------------------------------------
   //
   // As MESMAS credenciais que o n8n já usava nos fluxos de entrada. Não

@@ -45,6 +45,7 @@ import {
   type TipoDiagnostico,
 } from './processar.js';
 import { env } from '../../config/env.js';
+import { enviarAoCrm } from './crm.js';
 
 export const diagnosticoPublicoRouter = Router();
 
@@ -167,6 +168,35 @@ function tratar(tipo: TipoDiagnostico) {
         scoreTotal: score,
         nivelSaude: nivel,
       });
+
+      /**
+       * Cópia para o CRM: só o que vem do site.
+       *
+       * `pedido` preenchido significa chamada do painel (`?motor=`), e
+       * lead do painel já é cliente — mandar ao CRM criaria prospect
+       * duplicado de quem já comprou.
+       *
+       * `void` porque ninguém espera: o site já recebeu o 202 acima, e
+       * `enviarAoCrm` nunca lança.
+       */
+      if (!pedido) {
+        const blocos = Object.fromEntries(
+          Object.entries(body).filter(([k]) => k !== 'identificacao'),
+        );
+        const ip = (
+          String(req.headers['x-forwarded-for'] ?? req.ip ?? '').split(',')[0] ?? ''
+        ).trim();
+
+        void enviarAoCrm({
+          tipo,
+          protocolo,
+          score,
+          nivel: String(nivel ?? ''),
+          identificacao: body.identificacao,
+          blocos,
+          ip,
+        });
+      }
 
       // ---- daqui para baixo, ninguém mais está esperando ---------------
       //
