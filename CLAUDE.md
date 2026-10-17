@@ -101,6 +101,15 @@ rota respondeu 404 por meia hora.
 **Git trava com `index.lock`/`HEAD.lock`** quando o VS Code está com o repositório
 aberto. `Remove-Item .git\*.lock -Force` no PowerShell.
 
+**Não rode git pela sessão do Claude.** Ele enxerga os repositórios por um
+mount que não permite apagar arquivo, e o git depende de apagar: o `index.lock`
+que ele cria no começo de cada operação FICA, e a partir daí todo comando git
+falha — inclusive no PowerShell, até alguém remover o lock à mão. Também sobram
+`tmp_obj_*` em `.git/objects` (inofensivos, mas sujam o diretório). Aconteceu em
+15/10/2026: um `checkout -b` + `add` deixou o repositório travado. Se o Claude
+precisar commitar, o certo é ele escrever os comandos e você rodar no
+PowerShell.
+
 **Cache do navegador** mascarava deploys: o `index.html` ficava em cache
 apontando para o JS antigo. Resolvido em `site-nginx.conf` com `no-store` no
 index e `immutable` nos assets. Se alguém recriar esse arquivo, reponha.

@@ -10,6 +10,17 @@ Depois delas, o que está no ar, o que está em avaliação e as lições.
 
 ## Pendências
 
+### 0 (ter). Boletos está PAUSADO, e há um lock preso no git
+
+Pausado em 15/10/2026 para revisão de requisitos. O estado completo, as
+perguntas em aberto e os comandos para fechar os commits estão em
+**`BOLETOS-EM-ANDAMENTO.md`**.
+
+Duas coisas de imediato: existe um `.git/index.lock` preso neste repositório
+(`Remove-Item .git\*.lock -Force` no PowerShell, VS Code fechado), e o código
+está numa branch `boletos` sem commit. Nada foi publicado, o banco não foi
+alterado.
+
 ### 0 (bis). Conferir a captura de boleto com papel real
 
 Escrita e testada em 15/10/2026 (848 testes). Foto, PDF, linha digitada e
