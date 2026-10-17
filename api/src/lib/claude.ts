@@ -296,6 +296,12 @@ export interface RespostaComFerramentas extends RespostaConversa {
 export async function conversarComFerramentas(opcoes: {
   instrucao: string;
   contexto: string;
+  /**
+   * Material de referência constante, igual para todas as empresas —
+   * hoje, o manual das ferramentas. Ganha quebra de cache própria, para
+   * que o prefixo seja compartilhado entre clientes. Ver `chamarBruto`.
+   */
+  conhecimento?: string;
   mensagens: Array<{ role: 'user' | 'assistant'; content: unknown }>;
   ferramentas: FerramentaParaModelo[];
   /** Executa o pedido e devolve o texto do resultado. Nunca deve lançar. */
@@ -321,6 +327,7 @@ export async function conversarComFerramentas(opcoes: {
       maxTokens: opcoes.maxTokens,
       instrucao: opcoes.instrucao,
       contexto: opcoes.contexto,
+      conhecimento: opcoes.conhecimento,
       mensagens,
       ferramentas: ultima ? undefined : opcoes.ferramentas,
     });
@@ -396,6 +403,13 @@ async function chamarBruto(o: {
   maxTokens: number;
   instrucao: string;
   contexto: string;
+  /**
+   * Material de referência CONSTANTE — igual para todas as empresas.
+   *
+   * Ver a nota sobre as duas quebras de cache, logo abaixo, no corpo da
+   * requisição. Opcional: quem não manda segue com uma quebra só.
+   */
+  conhecimento?: string;
   mensagens: Array<{ role: string; content: unknown }>;
   ferramentas?: FerramentaParaModelo[];
 }): Promise<CorpoComFerramentas> {
@@ -419,8 +433,40 @@ async function chamarBruto(o: {
         max_tokens: o.maxTokens,
         temperature: 0.2,
         ...(o.ferramentas ? { tools: o.ferramentas } : {}),
+        /**
+         * DUAS QUEBRAS DE CACHE, E A ORDEM É O QUE FAZ A ECONOMIA.
+         *
+         * O bloco de sistema vai do mais compartilhado para o mais
+         * específico:
+         *
+         *   1. instrução   — constante
+         *   2. conhecimento — constante (o manual das ferramentas)
+         *   3. contexto     — VARIA POR EMPRESA (nome, data)
+         *
+         * A quebra depois do item 2 cria um prefixo — ferramentas +
+         * instrução + manual — IDÊNTICO para todos os clientes. Uma
+         * única entrada de cache serve a plataforma inteira.
+         *
+         * Com uma quebra só, no fim, cada empresa teria a própria
+         * entrada carregando o manual de sete mil tokens dentro. Nada
+         * quebraria; o custo subiria em silêncio, que é o modo de falha
+         * que este projeto mais evita.
+         *
+         * A ordem inversa não funcionaria: cache é por PREFIXO, e um
+         * bloco que varia antes de um constante invalida tudo que vem
+         * depois.
+         */
         system: [
           { type: 'text', text: o.instrucao },
+          ...(o.conhecimento
+            ? [
+                {
+                  type: 'text',
+                  text: o.conhecimento,
+                  cache_control: { type: 'ephemeral' },
+                },
+              ]
+            : []),
           { type: 'text', text: o.contexto, cache_control: { type: 'ephemeral' } },
         ],
         messages: o.mensagens,

@@ -15,7 +15,8 @@
     "paridade:regua": "tsc -p tsconfig.json && node scripts/paridade-regua/paridade.mjs",
     "types:gen": "supabase gen types typescript --db-url \"$SUPABASE_DB_URL\" --schema public > src/types/database.types.ts",
     "paridade:comercial": "tsc -p tsconfig.json && node scripts/paridade-regua-comercial/paridade.mjs",
-    "redator:exemplo": "tsc -p tsconfig.json && node scripts/exemplo-relatorio.mjs"
+    "redator:exemplo": "tsc -p tsconfig.json && node scripts/exemplo-relatorio.mjs",
+    "manual": "tsc -p tsconfig.json && node scripts/gerar-manual.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

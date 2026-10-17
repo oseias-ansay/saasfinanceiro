@@ -47,6 +47,7 @@ import { DEFINICOES } from './definicoes.js';
 import { executar, type Db } from './executor.js';
 import { existe, validarParametros } from './ferramentas.js';
 import { INSTRUCAO_ASSISTENTE } from './instrucao.js';
+import { MANUAL_FERRAMENTAS } from './manual.js';
 
 export const assistenteRouter = Router();
 
@@ -207,6 +208,15 @@ assistenteRouter.post('/mensagem', validate(perguntaSchema), async (req, res, ne
      */
     const { texto, consumo, usou, rodadas } = await conversarComFerramentas({
       instrucao: INSTRUCAO_ASSISTENTE,
+      /**
+       * O manual das telas, constante para todas as empresas.
+       *
+       * Entra como bloco próprio, com quebra de cache própria, de modo
+       * que o prefixo do prompt seja compartilhado entre clientes. Se
+       * um dia ele for montado por empresa, o cache para de acertar e o
+       * custo sobe sem sintoma. Ver a nota em `lib/claude.ts`.
+       */
+      conhecimento: MANUAL_FERRAMENTAS,
       contexto,
       mensagens: [
         ...janelaDeHistorico((historico ?? []) as MensagemGuardada[]),

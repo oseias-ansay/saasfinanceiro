@@ -8,7 +8,7 @@ operada por uma consultoria. Dois repositórios:
 
 ## Como trabalhar aqui
 
-**Teste antes de dar por pronto.** `cd api && npm test` roda a suíte (905 testes,
+**Teste antes de dar por pronto.** `cd api && npm test` roda a suíte (910 testes,
 node:test sobre o `dist`). `npx tsc --noEmit` para o typecheck. Os dois precisam
 passar; a suíte já pegou erros meus várias vezes.
 
@@ -189,6 +189,25 @@ modelo se comportar.
 prompt antes do bloco cacheado; variar entre clientes faria o cache nunca
 acertar, e o custo subiria cerca de dez vezes sem sintoma visível. Quem não tem
 dado numa área recebe "não há" quando a ferramenta roda.
+
+**O manual das telas vive no prompt, com quebra de cache própria.** O
+assistente recebe três blocos de sistema, do mais compartilhado para o mais
+específico: instrução (constante), manual (constante, ~7.200 tokens), contexto
+(varia por empresa). A quebra **depois do manual** faz o prefixo —
+ferramentas + instrução + manual — ser idêntico para todos os clientes e
+dividir uma única entrada de cache. Com uma quebra só no fim, cada empresa
+teria a própria entrada carregando o manual dentro: nada quebraria, o custo
+subiria em silêncio. Cache é por prefixo, então a ordem é o que faz a
+economia — bloco que varia antes de um constante invalida tudo depois.
+
+**O manual é gerado, nunca editado à mão.** `manual.md` é a fonte e também
+vira o PDF do cliente; `npm run manual` produz `manual.ts`. Há teste que falha
+se os dois divergirem — editar o markdown e esquecer de gerar deixaria o chat
+ensinando uma versão e o cliente lendo outra, sem nenhum sintoma. Embutido em
+`.ts` e não lido em execução porque o runtime do Dockerfile copia só o `dist`:
+um `.md` em `src` não chega ao container. Quando passar de ~60 mil caracteres
+(o teste avisa), vira ferramenta `consultar_manual` em vez de seguir inteiro
+no prefixo.
 
 **O modelo não faz conta.** As ferramentas leem as mesmas views das telas e
 devolvem o valor já somado. Dois lugares calculando o mesmo número terminam
