@@ -21,7 +21,9 @@ export type Recurso =
   | 'diagnostico_mensal'
   | 'pdca_financeiro'
   | 'pdca_comercial'
-  | 'crm';
+  | 'crm'
+  | 'crm_externo'
+  | 'contabil';
 
 /** Frase que o cliente lê. Diz o que falta, não o que ele fez de errado. */
 const EXPLICACAO: Record<Recurso, string> = {
@@ -31,6 +33,8 @@ const EXPLICACAO: Record<Recurso, string> = {
   pdca_financeiro: 'o plano de ação financeiro',
   pdca_comercial: 'o plano de ação comercial',
   crm: 'o CRM',
+  crm_externo: 'o CRM',
+  contabil: 'a contabilidade gerencial',
 };
 
 /**

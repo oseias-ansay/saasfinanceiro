@@ -251,6 +251,16 @@ const schema = z.object({
   // aparece, e não há erro em lugar nenhum.
   BOLETO_EMAIL_DOMINIO: z.string().default('businesstriage.com.br'),
 
+  // Domínios do CRM e do Contábil, que são sistemas separados com banco
+  // e sessão próprios.
+  //
+  // A empresa vira subdomínio: `<slug_externo>.crm.businesstriage.com.br`.
+  // Errar o valor aqui manda o cliente para um host que não existe — e,
+  // quando o hand-off com token entrar, mandaria junto uma credencial.
+  // Por isso `montarEndereco` confere o formato antes de usar.
+  CRM_DOMINIO: z.string().default('crm.businesstriage.com.br'),
+  CONTABIL_DOMINIO: z.string().default('contabil.businesstriage.com.br'),
+
   // Ligar o relógio interno que roda a verificação.
   //
   // Desligado em desenvolvimento de propósito: cada `npm run dev` na sua
