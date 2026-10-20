@@ -147,6 +147,23 @@ primeiro (`cp` para `/root/resgate-...`), traga para o repositório, e só
 então limpe. Valor de configuração vai no `.env`, que não é versionado
 justamente para isso; o servidor deve ser só `git pull` e build.
 
+**Invariante de tabela não é permissão, e confundir os dois esconde o
+defeito atrás da mensagem errada.** Em `tg_acao_protege_campos`, o bloco que
+preenche `concluida_em` ficava DEPOIS do `return new` que libera o staff. O
+staff saía antes dele, gravava `concluida = true` com data nula, e a trava
+`acao_conclusao_ck` recusava. A tela dizia "estado inconsistente da conclusão,
+recarregue a página" — apontando para o front, que estava certo. Descoberto em
+19/10/2026; corrigido no SQL 65, movendo a coerência para antes de qualquer
+bifurcação de papel. Regra: o que a tabela exige de todo mundo vem primeiro; o
+que limita um papel vem depois.
+
+**Escrita por `supabase-js` sem `.select()` falha em silêncio.** O PostgREST
+responde 204 e o cliente devolve `error: null` mesmo quando o RLS escondeu a
+linha — zero linhas afetadas não é erro no Postgres. O sintoma é o pior
+possível: o clique não faz nada, sem mensagem e sem log. Foi o que deixou o
+PDCA sem marcar ação por semanas. Toda escrita passa por `escrever()` em
+`usePdca.ts`, que pede `.select()` e trata lista vazia como erro.
+
 **Cache do navegador** mascarava deploys: o `index.html` ficava em cache
 apontando para o JS antigo. Resolvido em `site-nginx.conf` com `no-store` no
 index e `immutable` nos assets. Se alguém recriar esse arquivo, reponha.
