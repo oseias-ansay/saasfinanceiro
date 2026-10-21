@@ -10,6 +10,17 @@ Depois delas, o que está no ar, o que está em avaliação e as lições.
 
 ## Pendências
 
+### 0 (quater). Extrato bancário está PAUSADO — ver `EXTRATO-EM-ANDAMENTO.md`
+
+Interrompido em 20/10/2026. Nada publicado. O **SQL 66 está escrito mas NÃO
+foi colado**, e precisa de um ajuste antes: trocar `numeric(14,2)` por
+centavos inteiros. Depois de colado com dado dentro, mudar o tipo é outra
+migração.
+
+O código de referência do Contábil está em `C:\Projetos\Claude\contabil-bank\`.
+Os quatro achados que mudam o plano, o layout do Nubank e o risco do
+repositório sem git estão no arquivo.
+
 ### 0 (ter). Boletos está PAUSADO, e há um lock preso no git
 
 Pausado em 15/10/2026 para revisão de requisitos. O estado completo, as

@@ -16,6 +16,7 @@ import { boletoWebhookRouter } from './modules/transactions/boleto.webhook.route
 import { reportsRouter } from './modules/reports/reports.routes.js';
 import { equilibrioRouter } from './modules/precificacao/equilibrio.routes.js';
 import { treinamentoRouter } from './modules/treinamento/treinamento.routes.js';
+import { interessesRouter } from './modules/interesses/interesses.routes.js';
 import { onboardingRouter } from './modules/onboarding/onboarding.routes.js';
 import { adminRouter } from './modules/admin/admin.routes.js';
 import { n8nRouter } from './modules/webhooks/n8n.routes.js';
@@ -77,6 +78,7 @@ export function createApp() {
   app.use('/api/v1/fechamento', fechamentoRouter);
   app.use('/api/v1/crm', crmRouter);
   app.use('/api/v1/credito', creditoRouter);
+  app.use('/api/v1/interesses', interessesRouter);
   app.use('/api/v1/pdca', pdcaRouter);
   app.use('/api/v1/assistente', assistenteRouter);
   // Antes do n8nRouter de propósito: montado depois, o prefixo mais curto

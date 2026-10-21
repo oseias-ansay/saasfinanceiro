@@ -24,11 +24,75 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireTenant, requireRole } from '../../middlewares/auth.js';
+import { requireRecurso } from '../../middlewares/recurso.js';
 import { validate } from '../../middlewares/validate.js';
 import { fromPostgrest, notFound } from '../../lib/errors.js';
+import { soAEstrutura } from './estrutura.js';
 
 export const treinamentoRouter = Router();
 treinamentoRouter.use(requireAuth, requireTenant);
+
+/* ==================================================================== */
+/* A ESTRUTURA — única rota ABERTA a quem não contratou                  */
+/* ==================================================================== */
+/**
+ * Módulos e títulos de aula, sem o conteúdo.
+ *
+ * =====================================================================
+ * POR QUE ELA EXISTE
+ * =====================================================================
+ * Quem não tem o recurso passa a ver um card bloqueado no painel, e o
+ * clique leva a uma tela que explica o curso. Essa tela precisa mostrar
+ * o que há dentro — aula por aula, porque é isso que convence quem já
+ * usa as ferramentas e vê campos em branco.
+ *
+ * Mostrar o índice vende. Entregar o vídeo, não.
+ *
+ * =====================================================================
+ * O QUE ELA NÃO DEVOLVE, E POR QUÊ
+ * =====================================================================
+ * `youtube_id` e `anexos` ficam de fora. Os vídeos são não listados, e
+ * num vídeo não listado o ID É a chave: quem tem o ID assiste, sem
+ * passar por aqui de novo. `anexos` carrega URL de planilha e PDF, que
+ * é o material do curso.
+ *
+ * Descoberto em 21/10/2026: até esta data o `GET /` inteiro não tinha
+ * portão nenhum, e devolvia os dois campos para qualquer usuário
+ * autenticado de qualquer plano. Ninguém tinha notado porque o card
+ * ficava escondido no painel — ou seja, o portão era só cosmético, e a
+ * tela nova ia apontar para a porta destrancada.
+ *
+ * Há teste varrendo esta resposta atrás de `youtube_id` e `anexos`.
+ */
+treinamentoRouter.get('/estrutura', async (req, res, next) => {
+  try {
+    const [modulos, aulas] = await Promise.all([
+      req.supabase.from('curso_modulos').select('*').eq('is_active', true).order('ordem'),
+      req.supabase.from('curso_aulas').select('*').eq('is_active', true).order('ordem'),
+    ]);
+
+    for (const r of [modulos, aulas]) {
+      if (r.error) throw fromPostgrest(r.error);
+    }
+
+    res.json(soAEstrutura((modulos.data ?? []) as any[], (aulas.data ?? []) as any[]));
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ==================================================================== */
+/* O PORTÃO                                                              */
+/* ==================================================================== */
+/**
+ * Daqui para baixo, só quem contratou.
+ *
+ * A POSIÇÃO DESTA LINHA É A REGRA. `router.use` só alcança o que vem
+ * DEPOIS dele — a `/estrutura` acima fica de fora de propósito, e mover
+ * qualquer rota para cima dela a deixaria aberta sem nenhum sintoma.
+ * Rota nova vai embaixo.
+ */
+treinamentoRouter.use(requireRecurso('treinamento'));
 
 const ESCREVE = requireRole('owner', 'admin', 'member');
 

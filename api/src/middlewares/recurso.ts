@@ -23,7 +23,8 @@ export type Recurso =
   | 'pdca_comercial'
   | 'crm'
   | 'crm_externo'
-  | 'contabil';
+  | 'contabil'
+  | 'treinamento';
 
 /** Frase que o cliente lê. Diz o que falta, não o que ele fez de errado. */
 const EXPLICACAO: Record<Recurso, string> = {
@@ -35,6 +36,7 @@ const EXPLICACAO: Record<Recurso, string> = {
   crm: 'o CRM',
   crm_externo: 'o CRM',
   contabil: 'a contabilidade gerencial',
+  treinamento: 'o treinamento Finanças para Pequenas Empresas',
 };
 
 /**
